@@ -34,7 +34,7 @@ export default function DevicesPage() {
 
     // 📡 Obtener sensores conectados en tiempo real desde WebSocket
     useEffect(() => {
-        const ws = new WebSocket('wss://bio-data-production.up.railway.app');
+        const ws = new WebSocket('wss://bio-data-pro-production.up.railway.app');
         const connected = new Map();
 
         ws.onmessage = (event) => {

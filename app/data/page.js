@@ -49,7 +49,7 @@ export default function DataPage() {
     useEffect(() => {
         if (!hydrated || !user?.username) return;
 
-        const socket = new WebSocket('wss://bio-data-production.up.railway.app');
+        const socket = new WebSocket('wss://bio-data-pro-production.up.railway.app');
         ws.current = socket;
 
         socket.onopen = () => {
