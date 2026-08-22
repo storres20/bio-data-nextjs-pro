@@ -33,15 +33,19 @@ export default function DataPage() {
         let message = '';
 
         // Solo validar si el valor NO es null
-        if (latestDsTemp !== null) {
-            if (latestDsTemp > 6) message += `⚠️ DS18B20 Temperature (${latestDsTemp}°C) exceeds maximum threshold (6°C). `;
-            if (latestDsTemp < 2) message += `⚠️ DS18B20 Temperature (${latestDsTemp}°C) below minimum threshold (2°C). `;
-        }
+        // TEMPORALMENTE DESACTIVADO:
+        // No evaluar Temp.OUT con el rango 2-6 °C
+        // porque ULT26-001 corresponde a congelador de plasma.
 
-        if (latestHum !== null) {
-            if (latestHum > 90) message += `⚠️ Humidity (${latestHum}%) exceeds maximum threshold (90%). `;
-            if (latestHum < 30) message += `⚠️ Humidity (${latestHum}%) below minimum threshold (30%). `;
+        /*
+        if (latestDsTemp !== null) {
+            if (latestDsTemp > 6)
+                message += `⚠️ Temperature (${latestDsTemp}°C) exceeds maximum threshold (6°C). `;
+
+            if (latestDsTemp < 2)
+                message += `⚠️ Temperature (${latestDsTemp}°C) below minimum threshold (2°C). `;
         }
+        */
 
         return message;
     };
@@ -844,7 +848,8 @@ export default function DataPage() {
                                 .filter(([user]) => user.toLowerCase().includes(searchQuery))
                                 .map(([user, data]) => {
                                     const hasWarning = data.warningMessage;
-                                    const isCriticalTemp = data.dsTemperature !== null && (data.dsTemperature > 6 || data.dsTemperature < 2);
+                                    // const isCriticalTemp = data.dsTemperature !== null && (data.dsTemperature > 6 || data.dsTemperature < 2);
+                                    const isCriticalTemp = false;
                                     const doorConfig = getDoorStatusConfig(data.doorStatus);
                                     const isDoorOpen = data.doorStatus === 'open';
                                     const hasSensorError = data.dsTemperature === null || data.temperature === null || data.humidity === null;
