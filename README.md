@@ -24,7 +24,7 @@ This is the frontend application of the **MHUTEMP** project, providing a real-ti
 
 1. Clone this repository:
 ```sh
-git clone https://github.com/storres20/bio-data-nextjs.git
+git clone https://github.com/storres20/bio-data-nextjs-pro.git
 ```
 
 2. Install dependencies:
