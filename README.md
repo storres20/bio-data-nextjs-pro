@@ -1,7 +1,7 @@
 # MHUTEMP Frontend Application
 
 ## Version 2026 - ESP32
-<img width="1920" height="1078" alt="image" src="https://github.com/user-attachments/assets/cf9ee1ab-5f8e-4450-a2bf-fdf922dc5c7b" />
+<img width="1264" height="1037" alt="image" src="https://github.com/user-attachments/assets/d66ce999-ddaf-4f11-bc91-1b69b3681f8f" />
 
 
 This is the frontend application of the **MHUTEMP** project, providing a real-time dashboard and historical data view for temperature and humidity monitoring.
