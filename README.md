@@ -44,12 +44,12 @@ pnpm dev
 
 ## 📚 Related Repositories
 
-- [MHUTEMP Backend Server (Node.js)](https://github.com/storres20/bio-data)
+- [MHUTEMP Backend Server (Node.js)](https://github.com/storres20/bio-data-pro)
 
 ## 📜 License
 
 This project is licensed under the MIT License.  
-See the [LICENSE](https://github.com/storres20/bio-data-nextjs/blob/main/LICENSE.txt) file for more details.
+See the [LICENSE](https://github.com/storres20/bio-data-nextjs-pro/blob/main/LICENSE.txt) file for more details.
 
 ## Version 2025 - ESP8266
 ![temphuweb01](https://github.com/user-attachments/assets/870c6bcf-cf79-4070-8070-e88729208b78)
