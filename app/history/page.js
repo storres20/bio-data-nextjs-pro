@@ -12,14 +12,33 @@ const historyDateFormatter = new Intl.DateTimeFormat('es-PE', {
     hour12: true, timeZone: 'America/Lima'
 });
 
+const historyMetrics = [
+    {
+        label: 'Temp.OUT (°C)', field: 'dsTemperature', color: 'rgba(6, 182, 212, 1)',
+        title: 'Temperature OUT (Probe) - °C', marker: 'bg-cyan-500',
+        panel: 'from-cyan-50 to-cyan-100 border-cyan-200',
+    },
+    {
+        label: 'Temp.IN (°C)', field: 'temperature', color: 'rgba(244, 63, 94, 1)',
+        title: 'Temperature IN (Ambient) - °C', marker: 'bg-rose-500',
+        panel: 'from-rose-50 to-rose-100 border-rose-200',
+    },
+    {
+        label: 'Hum.IN (%)', field: 'humidity', color: 'rgba(99, 102, 241, 1)',
+        title: 'Humidity IN (Ambient) - %', marker: 'bg-indigo-500',
+        panel: 'from-indigo-50 to-indigo-100 border-indigo-200',
+    },
+];
+
 export default function HistoryPage() {
     const { user, hydrated } = useAuth();
     const [devices, setDevices] = useState([]);
     const [selectedDevice, setSelectedDevice] = useState('');
-    const [data, setData] = useState([]);
+    const [searchResult, setSearchResult] = useState(null);
     const [from, setFrom] = useState('');
     const [to, setTo] = useState('');
     const [loading, setLoading] = useState(false);
+    const [exportingPdf, setExportingPdf] = useState(false);
     const [error, setError] = useState('');
 
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_RAILWAY;
@@ -32,52 +51,42 @@ export default function HistoryPage() {
         }
     }, [hydrated, user, apiBase]);
 
-    const fetchHistory = () => {
-        if (!selectedDevice) {
+    const fetchHistory = async () => {
+        const device = devices.find(dev => dev._id === selectedDevice);
+        if (!device) {
             setError('Please select a device');
+            return;
+        }
+
+        if (from && to && from > to) {
+            setError('From Date must be on or before To Date.');
             return;
         }
 
         setLoading(true);
         setError('');
+        setSearchResult(null);
 
-        const url = new URL(`${apiBase}/api/v1/datas/by-device/${selectedDevice}`);
+        try {
+            const url = new URL(`${apiBase}/api/v1/datas/by-device/${encodeURIComponent(device._id)}`);
+            if (from) url.searchParams.set('from', new Date(`${from}T00:00:00.000-05:00`).toISOString());
+            if (to) url.searchParams.set('to', new Date(`${to}T23:59:59.999-05:00`).toISOString());
 
-        if (from) {
-            const fromISO = new Date(`${from}T00:00:00`).toISOString();
-            url.searchParams.append('from', fromISO);
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const records = await response.json();
+            if (!Array.isArray(records)) throw new Error('Invalid history response');
+
+            setSearchResult({ device, from, to, records });
+            if (records.length === 0) {
+                setError('No data found for the selected criteria');
+            }
+        } catch (err) {
+            console.error('Fetch history error:', err);
+            setError('Failed to load data. Please try again.');
+        } finally {
+            setLoading(false);
         }
-
-        if (to) {
-            const toISO = new Date(`${to}T23:59:59`).toISOString();
-            url.searchParams.append('to', toISO);
-        }
-
-        fetch(url)
-            .then(async (res) => {
-                if (!res.ok) {
-                    const text = await res.text();
-                    throw new Error(`Error ${res.status}: ${text}`);
-                }
-                return res.json();
-            })
-            .then((result) => {
-                setData(result);
-                if (result.length === 0) {
-                    setError('No data found for the selected criteria');
-                }
-            })
-            .catch(err => {
-                console.error('Fetch history error:', err.message);
-                setError('Failed to load data. Please try again.');
-                setData([]);
-            })
-            .finally(() => setLoading(false));
-    };
-
-    const generatePDF = () => {
-        const url = `${apiBase}/api/report/pdf/device/${selectedDevice}?from=${from}&to=${to}`;
-        window.open(url, '_blank');
     };
 
     const groupByDay = (dataset) => {
@@ -97,10 +106,12 @@ export default function HistoryPage() {
 
     if (!hydrated || !user) return null;
 
-    const groupedData = groupByDay(data);
-    const selectedDeviceInfo = devices.find(dev => dev._id === selectedDevice);
+    const data = searchResult?.records ?? [];
+    const selectedDeviceInfo = searchResult?.device;
+    const filtersMatch = searchResult !== null && selectedDeviceInfo._id === selectedDevice
+        && searchResult.from === from && searchResult.to === to;
 
-    const chartData = (label, field, color, dayData, labels) => ({
+    const chartData = ({ label, field, color }, dayData, labels) => ({
         labels,
         datasets: [{
             label,
@@ -169,6 +180,37 @@ export default function HistoryPage() {
                 }
             }
         },
+    };
+
+    const dailyCharts = Object.entries(groupByDay(data)).map(([day, records]) => {
+        const labels = records.map(record => historyDateFormatter.format(new Date(record.datetime)));
+        const charts = historyMetrics.map(metric => ({
+            ...metric,
+            data: chartData(metric, records, labels),
+        }));
+        return { day, count: records.length, charts };
+    });
+
+    const generatePDF = async () => {
+        if (!filtersMatch || !data.length || loading || exportingPdf) return;
+
+        setError('');
+        setExportingPdf(true);
+        try {
+            const { downloadHistoryPdf } = await import('./downloadHistoryPdf');
+            downloadHistoryPdf({
+                user,
+                searchResult,
+                dailyCharts,
+                chartOptions,
+                dateFormatter: historyDateFormatter,
+            });
+        } catch (err) {
+            console.error('History PDF error:', err);
+            setError('Failed to generate the PDF. Please try again.');
+        } finally {
+            setExportingPdf(false);
+        }
     };
 
     return (
@@ -275,7 +317,7 @@ export default function HistoryPage() {
                     <div className="mt-4 flex gap-3">
                         <button
                             onClick={fetchHistory}
-                            disabled={loading}
+                            disabled={loading || exportingPdf}
                             className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {loading ? (
@@ -298,12 +340,14 @@ export default function HistoryPage() {
                         {data.length > 0 && selectedDeviceInfo && (
                             <button
                                 onClick={generatePDF}
-                                className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-md font-semibold"
+                                disabled={!filtersMatch || loading || exportingPdf}
+                                title={filtersMatch ? undefined : 'Search again to download a report with these filters'}
+                                className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
-                                Download PDF Report
+                                {exportingPdf ? 'Generating PDF…' : 'Download PDF Report'}
                             </button>
                         )}
                     </div>
@@ -418,66 +462,35 @@ export default function HistoryPage() {
                 )}
 
                 {/* Charts by Day */}
-                {Object.entries(groupedData).map(([day, dayData]) => {
-                    const labels = dayData.map(d => historyDateFormatter.format(new Date(d.datetime)));
-
-                    return (
-                        <div key={day} className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
-                            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                    Historical Charts - {day}
-                                </h2>
-                                <p className="text-blue-100 text-sm mt-1">{dayData.length} data points recorded</p>
-                            </div>
-
-                            <div className="p-6 space-y-6">
-                                {/* DS Temperature Chart */}
-                                <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-lg border border-cyan-200 p-4">
-                                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                                        <div className="w-3 h-3 bg-cyan-500 rounded-full"></div>
-                                        Temperature OUT (Probe) - °C
-                                    </h3>
-                                    <div className="bg-white rounded-lg p-4">
-                                        <div className="h-80">
-                                            <Line data={chartData("Temp.OUT (°C)", "dsTemperature", 'rgba(6, 182, 212, 1)', dayData, labels)} options={chartOptions} />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Temperature Chart */}
-                                <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-lg border border-rose-200 p-4">
-                                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                                        <div className="w-3 h-3 bg-rose-500 rounded-full"></div>
-                                        Temperature IN (Ambient) - °C
-                                    </h3>
-                                    <div className="bg-white rounded-lg p-4">
-                                        <div className="h-80">
-                                            <Line data={chartData("Temp.IN (°C)", "temperature", 'rgba(244, 63, 94, 1)', dayData, labels)} options={chartOptions}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Humidity Chart */}
-                                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200 p-4">
-                                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                                        <div className="w-3 h-3 bg-indigo-500 rounded-full"></div>
-                                        Humidity IN (Ambient) - %
-                                    </h3>
-                                    <div className="bg-white rounded-lg p-4">
-                                        <div className="h-80">
-                                            <Line data={chartData("Hum.IN (%)", "humidity", 'rgba(99, 102, 241, 1)', dayData, labels)} options={chartOptions} />
-                                        </div>
-                                    </div>
-                                </div>
-
-                            </div>
+                {dailyCharts.map(({ day, count, charts }) => (
+                    <div key={day} className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                Historical Charts - {day}
+                            </h2>
+                            <p className="text-blue-100 text-sm mt-1">{count} data points recorded</p>
                         </div>
-                    );
-                })}
+
+                        <div className="p-6 space-y-6">
+                            {charts.map(chart => (
+                                <div key={chart.field} className={`bg-gradient-to-br rounded-lg border p-4 ${chart.panel}`}>
+                                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                        <span className={`w-3 h-3 rounded-full ${chart.marker}`} />
+                                        {chart.title}
+                                    </h3>
+                                    <div className="bg-white rounded-lg p-4">
+                                        <div className="h-80">
+                                            <Line data={chart.data} options={chartOptions} />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
 
                 {/* Empty State */}
                 {!loading && data.length === 0 && !error && (
