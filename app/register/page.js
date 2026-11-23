@@ -13,21 +13,37 @@ export default function Register() {
     const [message, setMessage] = useState('');
     const [messageType, setMessageType] = useState(''); // 'success' or 'error'
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingAreas, setLoadingAreas] = useState(false);
+    const [areasError, setAreasError] = useState('');
 
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_RAILWAY;
 
     useEffect(() => {
-        // Fetch hospitals and areas from backend
         fetch(`${apiBase}/api/auth/hospitals`)
             .then((res) => res.json())
             .then((data) => setHospitals(data))
             .catch((err) => console.error('Error fetching hospitals:', err));
-
-        fetch(`${apiBase}/api/auth/areas`)
-            .then((res) => res.json())
-            .then((data) => setAreas(data))
-            .catch((err) => console.error('Error fetching areas:', err));
     }, [apiBase]);
+
+    useEffect(() => {
+        if (!selectedHospital) return;
+        const controller = new AbortController();
+        fetch(`${apiBase}/api/auth/hospitals/${encodeURIComponent(selectedHospital)}/areas`, { signal: controller.signal })
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(result => {
+                if (!controller.signal.aborted) setAreas(result);
+            })
+            .catch(() => {
+                if (!controller.signal.aborted) setAreasError('Could not load the areas for this hospital.');
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setLoadingAreas(false);
+            });
+        return () => controller.abort();
+    }, [apiBase, selectedHospital]);
 
     const isFormValid = username && password && selectedHospital && selectedArea;
 
@@ -52,13 +68,15 @@ export default function Register() {
             });
 
             if (response.ok) {
-                setMessage('Registration successful! You can now login.');
+                const result = await response.json();
+                setMessage(result.message);
                 setMessageType('success');
                 // Clear form
                 setUsername('');
                 setPassword('');
                 setSelectedHospital('');
                 setSelectedArea('');
+                setAreas([]);
             } else {
                 const errorData = await response.json();
                 setMessage(errorData.message || 'Registration failed. Please try again.');
@@ -78,7 +96,7 @@ export default function Register() {
                 {/* Header */}
                 <div className="text-center my-4">
                     <h1 className="text-3xl font-bold text-green-900 mb-2">Create Account</h1>
-                    <p className="text-gray-600">Blood Bank Monitoring System</p>
+                    <p className="text-gray-600">Hospital Monitoring System</p>
                 </div>
 
                 {/* Registration Card */}
@@ -175,7 +193,14 @@ export default function Register() {
                                     <select
                                         className="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all shadow-sm appearance-none bg-white cursor-pointer"
                                         value={selectedHospital}
-                                        onChange={(e) => setSelectedHospital(e.target.value)}
+                                        onChange={(e) => {
+                                            const hospital = e.target.value;
+                                            setSelectedHospital(hospital);
+                                            setSelectedArea('');
+                                            setAreas([]);
+                                            setAreasError('');
+                                            setLoadingAreas(Boolean(hospital));
+                                        }}
                                         disabled={isLoading}
                                     >
                                         <option value="">Select a Hospital</option>
@@ -209,9 +234,9 @@ export default function Register() {
                                         className="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all shadow-sm appearance-none bg-white cursor-pointer"
                                         value={selectedArea}
                                         onChange={(e) => setSelectedArea(e.target.value)}
-                                        disabled={isLoading}
+                                        disabled={isLoading || loadingAreas || !selectedHospital || areas.length === 0}
                                     >
-                                        <option value="">Select an Area</option>
+                                        <option value="">{loadingAreas ? 'Loading areas…' : 'Select an Area'}</option>
                                         {areas.map((area) => (
                                             <option key={area._id} value={area._id}>
                                                 {area.name}
@@ -224,6 +249,10 @@ export default function Register() {
                                         </svg>
                                     </div>
                                 </div>
+                                {areasError && <p role="alert" className="mt-2 text-sm text-red-700">{areasError}</p>}
+                                {selectedHospital && !loadingAreas && !areasError && areas.length === 0 && (
+                                    <p className="mt-2 text-sm text-gray-600">No areas are configured for this hospital.</p>
+                                )}
                             </div>
 
                             {/* Register Button */}

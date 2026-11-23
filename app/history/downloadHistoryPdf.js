@@ -28,7 +28,7 @@ export function downloadHistoryPdf({ user, searchResult, dailyCharts, chartOptio
         columnStyles: { 0: { fontStyle: 'bold', cellWidth: 26 } },
         body: [
             ['Hospital', user.hospital?.name ?? '-'],
-            ['Area', user.area?.name ?? '-'],
+            ['Area', device.area_id?.name ?? '-'],
             ['Device', device.name ?? '-'],
             ['Brand', device.brand ?? '-'],
             ['Model', device.model ?? '-'],

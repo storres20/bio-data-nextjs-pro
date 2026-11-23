@@ -5,12 +5,17 @@ import { Line } from 'react-chartjs-2';
 import 'chart.js/auto';
 import { useAuth } from '@/context/AuthContext';
 import HospitalInfoBanner from '@/components/HospitalInfoBanner';
+import { authHeaders, canViewDevice, getAllowedAreas, liveSocketUrl } from '@/lib/hospitalAccess';
 
 export default function DataPage() {
     const { user, token, hydrated } = useAuth();
-    const [connectedUsers, setConnectedUsers] = useState(new Map());
+    const [liveSensors, setConnectedUsers] = useState(new Map());
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedUser, setSelectedUser] = useState(null);
+    const [selectedSensor, setSelectedSensor] = useState(null);
+    const selectedUser = canViewDevice(user, selectedSensor?.device) ? selectedSensor.username : null;
+    const selectedDeviceId = selectedUser ? selectedSensor.device._id : null;
+    const connectedUsers = new Map([...liveSensors].filter(([, reading]) => canViewDevice(user, reading.device)));
+    const areas = getAllowedAreas(user);
     const [showInfoModal, setShowInfoModal] = useState(false);
     const [todayData, setTodayData] = useState([]);
     const [loadingTodayData, setLoadingTodayData] = useState(false);
@@ -27,20 +32,24 @@ export default function DataPage() {
     }, [hydrated, token]);
 
     useEffect(() => {
-        if (!hydrated || !user?.username) return;
+        if (!hydrated || !user?.allowedAreas || !token || !apiBase) return;
 
-        const socket = new WebSocket('wss://bio-data-pro-production.up.railway.app');
+        const socket = new WebSocket(liveSocketUrl(apiBase));
         ws.current = socket;
 
         socket.onopen = () => {
             console.log('WebSocket connected.');
-            const intro = JSON.stringify({ username: user.username });
-            socket.send(intro);
-            console.log('📨 Username enviado:', user.username);
+            socket.send(JSON.stringify({ type: 'subscribe', token }));
         };
 
-        socket.onmessage = async (event) => {
-            const data = JSON.parse(event.data);
+        socket.onmessage = (event) => {
+            let data;
+            try {
+                data = JSON.parse(event.data);
+            } catch {
+                return;
+            }
+            if (!data || typeof data !== 'object') return;
 
             // ⬇️ CAMBIO: Permitir null, solo verificar que sean del tipo correcto
             const hasValidData = (
@@ -56,16 +65,8 @@ export default function DataPage() {
                 return;
             }
 
-            let assignedDevice = null;
-            try {
-                const res = await fetch(`${apiBase}/api/devices/by-sensor/${data.username}`);
-                if (res.ok) {
-                    assignedDevice = await res.json();
-                }
-            } catch (err) {
-                console.error('Error fetching assigned device:', err);
-            }
-
+            const assignedDevice = data.device;
+            if (!canViewDevice(user, assignedDevice)) return;
             setConnectedUsers((prev) => {
                 const updated = new Map(prev);
                 const existing = updated.get(data.username) || {
@@ -128,9 +129,10 @@ export default function DataPage() {
 
         return () => {
             clearInterval(pingInterval);
+            socket.onmessage = null;
             if (ws.current) ws.current.close();
         };
-    }, [hydrated, user, apiBase]);
+    }, [hydrated, user, token, apiBase]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -150,16 +152,15 @@ export default function DataPage() {
     }, []);
 
     useEffect(() => {
-        const fetchTodayData = async () => {
-            const currentUserData = connectedUsers.get(selectedUser);
-            if (!selectedUser || !currentUserData?.device?._id) {
-                setTodayData([]);
-                return;
-            }
+        const controller = new AbortController();
+        setTodayData([]);
+        setLoadingTodayData(false);
+        if (!selectedDeviceId) return;
 
+        const fetchTodayData = async () => {
             setLoadingTodayData(true);
             try {
-                const deviceId = currentUserData.device._id;
+                const deviceId = selectedDeviceId;
                 const now = new Date();
                 const peruDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Lima' }));
 
@@ -167,53 +168,61 @@ export default function DataPage() {
                 const toDate = new Date(peruDate.setHours(23, 59, 59, 999)).toISOString();
 
                 const url = `${apiBase}/api/v1/datas/by-device/${deviceId}?from=${fromDate}&to=${toDate}`;
-                const response = await fetch(url);
+                const response = await fetch(url, { headers: authHeaders(token), signal: controller.signal });
 
                 if (response.ok) {
                     const data = await response.json();
-                    setTodayData(data);
+                    if (!controller.signal.aborted) setTodayData(data);
                 }
             } catch (err) {
+                if (controller.signal.aborted) return;
                 console.error('Error fetching today data:', err);
                 setTodayData([]);
             } finally {
-                setLoadingTodayData(false);
+                if (!controller.signal.aborted) setLoadingTodayData(false);
             }
         };
 
         fetchTodayData();
         const interval = setInterval(fetchTodayData, 120000);
-        return () => clearInterval(interval);
-    }, [selectedUser, apiBase]);
+        return () => {
+            controller.abort();
+            clearInterval(interval);
+        };
+    }, [selectedDeviceId, token, apiBase]);
 
     useEffect(() => {
-        const fetchTempExtremes = async () => {
-            if (!selectedUser) {
-                setTempExtremes({ min: null, max: null });
-                return;
-            }
+        const controller = new AbortController();
+        setTempExtremes({ min: null, max: null });
+        setLoadingExtremes(false);
+        if (!selectedUser) return;
 
+        const fetchTempExtremes = async () => {
             setLoadingExtremes(true);
             try {
-                const url = `${apiBase}/api/v1/datas/temp-extremes/${selectedUser}`;
-                const response = await fetch(url);
+                const url = `${apiBase}/api/v1/datas/temp-extremes/${encodeURIComponent(selectedUser)}`;
+                const response = await fetch(url, { headers: authHeaders(token), signal: controller.signal });
 
                 if (response.ok) {
                     const data = await response.json();
-                    setTempExtremes(data);
+                    if (!controller.signal.aborted) setTempExtremes(data);
                 }
             } catch (err) {
+                if (controller.signal.aborted) return;
                 console.error('Error fetching temp extremes:', err);
                 setTempExtremes({ min: null, max: null });
             } finally {
-                setLoadingExtremes(false);
+                if (!controller.signal.aborted) setLoadingExtremes(false);
             }
         };
 
         fetchTempExtremes();
         const interval = setInterval(fetchTempExtremes, 600000);
-        return () => clearInterval(interval);
-    }, [selectedUser, apiBase]);
+        return () => {
+            controller.abort();
+            clearInterval(interval);
+        };
+    }, [selectedUser, selectedDeviceId, token, apiBase]);
 
     if (!hydrated || !user) return null;
 
@@ -368,7 +377,7 @@ export default function DataPage() {
                                 <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                Blood Bank Monitoring System
+                                Hospital Monitoring System
                             </h1>
                             <p className="text-sm text-gray-600 mt-1">Real-time temperature and humidity monitoring</p>
                         </div>
@@ -446,7 +455,7 @@ export default function DataPage() {
                     <div className="space-y-6">
                         <button
                             className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm font-medium text-gray-700"
-                            onClick={() => setSelectedUser(null)}
+                            onClick={() => setSelectedSensor(null)}
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -768,10 +777,18 @@ export default function DataPage() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {[...connectedUsers.entries()]
-                                .filter(([user]) => user.toLowerCase().includes(searchQuery))
-                                .map(([user, data]) => {
+                        {areas.map(area => {
+                            const cards = [...connectedUsers.entries()].filter(([username, reading]) =>
+                                reading.device.area_id._id === area._id && username.toLowerCase().includes(searchQuery.toLowerCase())
+                            );
+                            return (
+                                <section key={area._id} className="mb-6 overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+                                    <h2 className="bg-blue-700 px-5 py-3 text-lg font-semibold text-white">{area.name}</h2>
+                                    {cards.length === 0 && (
+                                        <p className="px-5 py-6 text-sm text-gray-600">{searchQuery ? 'No matching devices' : 'No active devices'}</p>
+                                    )}
+                                    <div className="grid grid-cols-1 gap-6 p-5 md:grid-cols-2 lg:grid-cols-3">
+                                    {cards.map(([user, data]) => {
                                     const doorConfig = getDoorStatusConfig(data.doorStatus);
                                     const isDoorOpen = data.doorStatus === 'open';
                                     const hasSensorError = data.dsTemperature === null || data.temperature === null || data.humidity === null;
@@ -786,7 +803,7 @@ export default function DataPage() {
                                                     ? 'bg-gradient-to-br from-red-50 to-orange-50 border-red-400 hover:border-red-500'
                                                     : 'bg-white border-gray-200 hover:border-blue-400'
                                             }`}
-                                            onClick={() => setSelectedUser(user)}
+                                            onClick={() => setSelectedSensor({ username: user, device: data.device })}
                                         >
                                             {needsAttention && (
                                                 <div className="absolute top-0 right-0 bg-red-600 text-white px-3 py-1 text-xs font-bold rounded-bl-lg flex items-center gap-1 shadow-lg animate-pulse">
@@ -937,28 +954,22 @@ export default function DataPage() {
                                             </div>
                                         </div>
                                     );
-                                })}
-                        </div>
+                                    })}
+                                    </div>
+                                </section>
+                            );
+                        })}
 
-                        {connectedUsers.size === 0 && (
+                        {areas.length === 0 && (
                             <div className="text-center py-16 bg-white rounded-xl shadow-sm border border-gray-200">
                                 <svg className="w-24 h-24 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
                                 </svg>
-                                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Active Devices</h3>
-                                <p className="text-gray-600">Waiting for sensor connections...</p>
+                                <h3 className="text-xl font-semibold text-gray-900 mb-2">No authorized areas</h3>
+                                <p className="text-gray-600">Contact your hospital administrator for access.</p>
                             </div>
                         )}
 
-                        {connectedUsers.size > 0 && [...connectedUsers.entries()].filter(([user]) => user.toLowerCase().includes(searchQuery)).length === 0 && (
-                            <div className="text-center py-16 bg-white rounded-xl shadow-sm border border-gray-200">
-                                <svg className="w-24 h-24 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Results Found</h3>
-                                <p className="text-gray-600">Try adjusting your search terms</p>
-                            </div>
-                        )}
                     </>
                 )}
             </div>
@@ -967,7 +978,7 @@ export default function DataPage() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                     <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="text-sm text-gray-600">
-                            © 2025 MHUTEMP Blood Bank Monitoring System
+                            © 2025 MHUTEMP Hospital Monitoring System
                         </div>
                         <div className="flex items-center gap-4 text-sm text-gray-600">
                             <div className="flex items-center gap-2">

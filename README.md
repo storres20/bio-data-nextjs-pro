@@ -33,8 +33,11 @@ pnpm install
 ```
 
 
-3. Create a `.env.local` file with the backend API URL:
-NEXT_PUBLIC_API_URL=http://your-backend-server-url
+3. Set the backend API URL in `.env.local`. For local development, run the backend with `PORT=3001`.
+
+```dotenv
+NEXT_PUBLIC_API_BASE_RAILWAY=http://localhost:3001
+```
 
 
 4. Run the development server:
@@ -45,6 +48,16 @@ pnpm dev
 ## 📚 Related Repositories
 
 - [MHUTEMP Backend Server (Node.js)](https://github.com/storres20/bio-data-pro)
+
+## Hospital area access
+
+Deploy the matching frontend and backend versions together. Set a private `JWT_SECRET` in Railway before users sign in.
+
+Existing accounts retain their previous area until an administrator updates their permissions. New accounts can sign in to see a pending area request. An administrator can grant or revoke access from **Manage Access**.
+
+An operator with database access provisions administrator roles on existing, verified accounts. Set the user's `role` to `hospital-admin` to manage accounts in that user's hospital or to `web-admin` for all hospitals. An administrator's monitoring feed still uses the areas assigned to that account.
+
+Add areas that have no registered equipment to the hospital's `area_ids` in MongoDB. The backend also recognizes area assignments from existing equipment and legacy accounts. Mobile clients that read live data or register for push notifications must authenticate against the new API and WebSocket.
 
 ## 📜 License
 

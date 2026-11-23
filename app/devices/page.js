@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import HospitalInfoBanner from '@/components/HospitalInfoBanner';
 import WebSocket from 'isomorphic-ws';
+import { authHeaders, canViewDevice, groupDevicesByArea, liveSocketUrl } from '@/lib/hospitalAccess';
 
 export default function DevicesPage() {
     const { user, token, hydrated } = useAuth();
@@ -25,50 +26,73 @@ export default function DevicesPage() {
 
     // 📥 Obtener dispositivos por hospital
     useEffect(() => {
-        if (hydrated && user) {
-            fetch(`${apiBase}/api/devices/hospital/${user.hospital._id}`)
-                .then(res => res.json())
-                .then(data => setDevices(data))
-                .catch(err => console.error(err));
-        }
-    }, [hydrated, user, apiBase]);
+        if (!hydrated || !user || !token) return;
+        const controller = new AbortController();
+        fetch(`${apiBase}/api/devices/hospital/${user.hospital._id}`, {
+            headers: authHeaders(token),
+            signal: controller.signal,
+        })
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(data => {
+                if (!controller.signal.aborted) setDevices(data);
+            })
+            .catch(err => {
+                if (!controller.signal.aborted) {
+                    setDevices([]);
+                    console.error('Error loading devices:', err);
+                }
+            });
+        return () => controller.abort();
+    }, [hydrated, user, token, apiBase]);
 
     // 📡 Obtener sensores conectados en tiempo real desde WebSocket
     useEffect(() => {
-        const ws = new WebSocket('wss://bio-data-pro-production.up.railway.app');
+        if (!token || !user?.allowedAreas || !apiBase) return;
+        const ws = new WebSocket(liveSocketUrl(apiBase));
         const connected = new Map();
+        const canAssign = user.role === 'web-admin';
+        ws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe', token, sensors: canAssign }));
 
+        const updateOnlineSensors = () => {
+            const cutoff = Date.now() - 5000;
+            for (const [username, lastSeen] of connected) {
+                if (lastSeen < cutoff) connected.delete(username);
+            }
+            setConnectedSensors([...connected.keys()]);
+        };
+        const interval = setInterval(updateOnlineSensors, 5000);
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+                if (typeof data.username !== 'string') return;
+                if (!(canViewDevice(user, data.device) || (canAssign && data.type === 'available-sensor'))) return;
                 const username = data.username;
-                const now = Date.now();
-
-                connected.set(username, now);
-
-                const filtered = Array.from(connected.entries())
-                    .filter(([, time]) => now - time < 5000)
-                    .map(([username]) => username);
-
-                setConnectedSensors(filtered);
+                connected.set(username, Date.now());
+                updateOnlineSensors();
             } catch (err) {
                 console.error('Error parsing WebSocket data:', err);
             }
         };
 
         return () => {
+            clearInterval(interval);
+            ws.onmessage = null;
             ws.close();
         };
-    }, []);
+    }, [token, user, apiBase]);
 
     // 🔄 Asignar sensor a un dispositivo
     const assignSensorToDevice = async (deviceId, username, deviceName) => {
         try {
             const res = await fetch(`${apiBase}/api/devices/${deviceId}/assign-sensor`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username })
             });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const updatedDevice = await res.json();
 
             setDevices((prev) =>
@@ -90,7 +114,8 @@ export default function DevicesPage() {
     if (!hydrated || !user) return null;
 
     const normalizedSearch = searchQuery.toLowerCase();
-    const filteredDevices = devices.filter(device => {
+    const visibleDevices = devices.filter(device => canViewDevice(user, device));
+    const filteredDevices = visibleDevices.filter(device => {
         const matchesSearch =
             device.name.toLowerCase().includes(normalizedSearch) ||
             device.brand.toLowerCase().includes(normalizedSearch) ||
@@ -105,11 +130,13 @@ export default function DevicesPage() {
         return matchesSearch && matchesFilter;
     });
 
-    const assignedDevices = devices.filter(device => device.assigned_sensor_username);
+    const deviceGroups = groupDevicesByArea(filteredDevices, device => device.area_id);
+    const assignedDevices = visibleDevices.filter(device => device.assigned_sensor_username);
     const assignedCount = assignedDevices.length;
-    const unassignedCount = devices.length - assignedCount;
+    const unassignedCount = visibleDevices.length - assignedCount;
     const assignedSensors = new Set(assignedDevices.map(device => device.assigned_sensor_username));
     const availableSensors = connectedSensors.filter(sensor => !assignedSensors.has(sensor));
+    const canAssign = user.role === 'web-admin';
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -155,7 +182,7 @@ export default function DevicesPage() {
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm font-medium text-gray-600">Total Devices</p>
-                                <p className="text-3xl font-bold text-gray-900 mt-1">{devices.length}</p>
+                                <p className="text-3xl font-bold text-gray-900 mt-1">{visibleDevices.length}</p>
                             </div>
                             <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                                 <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -269,8 +296,11 @@ export default function DevicesPage() {
                 </div>
 
                 {/* Devices Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredDevices.map((device) => {
+                {deviceGroups.map(({ area, items }) => (
+                    <section key={area._id} className="mb-6 overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+                        <h2 className="bg-blue-700 px-5 py-3 text-lg font-semibold text-white">{area.name}</h2>
+                        <div className="grid grid-cols-1 gap-6 p-5 md:grid-cols-2 lg:grid-cols-3">
+                    {items.map((device) => {
                         const isAssigned = !!device.assigned_sensor_username;
                         const sensorIsOnline = connectedSensors.includes(device.assigned_sensor_username);
 
@@ -329,7 +359,7 @@ export default function DevicesPage() {
 
                                     {/* Sensor Assignment */}
                                     <div className="border-t border-gray-200 pt-4">
-                                        {!isAssigned ? (
+                                        {!isAssigned && canAssign && (
                                             <>
                                                 <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -354,7 +384,11 @@ export default function DevicesPage() {
                                                     )}
                                                 </select>
                                             </>
-                                        ) : (
+                                        )}
+                                        {!isAssigned && !canAssign && (
+                                            <p className="text-sm text-gray-600">No sensor assigned.</p>
+                                        )}
+                                        {isAssigned && (
                                             <div className="space-y-3">
                                                 <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                                                     <div className="flex items-start gap-2">
@@ -369,7 +403,7 @@ export default function DevicesPage() {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <button
+                                                {canAssign && <button
                                                     onClick={() => assignSensorToDevice(device._id, '', device.name)}
                                                     className="w-full px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
                                                 >
@@ -377,7 +411,7 @@ export default function DevicesPage() {
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                                     </svg>
                                                     Unassign Sensor
-                                                </button>
+                                                </button>}
                                             </div>
                                         )}
                                     </div>
@@ -385,7 +419,9 @@ export default function DevicesPage() {
                             </div>
                         );
                     })}
-                </div>
+                        </div>
+                    </section>
+                ))}
 
                 {/* Empty State */}
                 {filteredDevices.length === 0 && (
@@ -397,7 +433,7 @@ export default function DevicesPage() {
                         <p className="text-gray-600">
                             {searchQuery || filterStatus !== 'all'
                                 ? 'Try adjusting your filters or search terms'
-                                : 'No devices registered for this hospital'}
+                                : 'No devices in your authorized areas'}
                         </p>
                     </div>
                 )}

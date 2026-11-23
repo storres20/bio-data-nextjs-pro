@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import HospitalInfoBanner from '@/components/HospitalInfoBanner';
 import { Line } from 'react-chartjs-2';
 import 'chart.js/auto';
+import { authHeaders, canViewDevice, groupDevicesByArea } from '@/lib/hospitalAccess';
 
 const historyDateFormatter = new Intl.DateTimeFormat('es-PE', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -31,7 +32,7 @@ const historyMetrics = [
 ];
 
 export default function HistoryPage() {
-    const { user, hydrated } = useAuth();
+    const { user, token, hydrated } = useAuth();
     const [devices, setDevices] = useState([]);
     const [selectedDevice, setSelectedDevice] = useState('');
     const [searchResult, setSearchResult] = useState(null);
@@ -44,15 +45,30 @@ export default function HistoryPage() {
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_RAILWAY;
 
     useEffect(() => {
-        if (hydrated && user) {
-            fetch(`${apiBase}/api/devices/hospital/${user.hospital._id}`)
-                .then(res => res.json())
-                .then(setDevices);
-        }
-    }, [hydrated, user, apiBase]);
+        if (!hydrated || !user || !token) return;
+        const controller = new AbortController();
+        fetch(`${apiBase}/api/devices/hospital/${user.hospital._id}`, {
+            headers: authHeaders(token),
+            signal: controller.signal,
+        })
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(result => {
+                if (!controller.signal.aborted) setDevices(result);
+            })
+            .catch(() => {
+                if (!controller.signal.aborted) {
+                    setDevices([]);
+                    setError('Failed to load devices.');
+                }
+            });
+        return () => controller.abort();
+    }, [hydrated, user, token, apiBase]);
 
     const fetchHistory = async () => {
-        const device = devices.find(dev => dev._id === selectedDevice);
+        const device = visibleDevices.find(dev => dev._id === selectedDevice);
         if (!device) {
             setError('Please select a device');
             return;
@@ -72,7 +88,7 @@ export default function HistoryPage() {
             if (from) url.searchParams.set('from', new Date(`${from}T00:00:00.000-05:00`).toISOString());
             if (to) url.searchParams.set('to', new Date(`${to}T23:59:59.999-05:00`).toISOString());
 
-            const response = await fetch(url);
+            const response = await fetch(url, { headers: authHeaders(token) });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const records = await response.json();
             if (!Array.isArray(records)) throw new Error('Invalid history response');
@@ -104,11 +120,13 @@ export default function HistoryPage() {
         }, {});
     };
 
-    if (!hydrated || !user) return null;
+    if (!hydrated || !user || !token) return null;
 
-    const data = searchResult?.records ?? [];
-    const selectedDeviceInfo = searchResult?.device;
-    const filtersMatch = searchResult !== null && selectedDeviceInfo._id === selectedDevice
+    const visibleDevices = devices.filter(device => canViewDevice(user, device));
+    const deviceGroups = groupDevicesByArea(visibleDevices, device => device.area_id);
+    const selectedDeviceInfo = canViewDevice(user, searchResult?.device) ? searchResult.device : null;
+    const data = selectedDeviceInfo ? searchResult.records : [];
+    const filtersMatch = selectedDeviceInfo?._id === selectedDevice
         && searchResult.from === from && searchResult.to === to;
 
     const chartData = ({ label, field, color }, dayData, labels) => ({
@@ -263,10 +281,14 @@ export default function HistoryPage() {
                                     className="pl-10 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
                                 >
                                     <option value="">-- Select Device --</option>
-                                    {devices.map(dev => (
-                                        <option key={dev._id} value={dev._id}>
-                                            {dev.name} ({dev.brand} {dev.model})
-                                        </option>
+                                    {deviceGroups.map(({ area, items }) => (
+                                        <optgroup key={area._id} label={area.name}>
+                                            {items.map(dev => (
+                                                <option key={dev._id} value={dev._id}>
+                                                    {dev.name} ({dev.brand} {dev.model})
+                                                </option>
+                                            ))}
+                                        </optgroup>
                                     ))}
                                 </select>
                             </div>
@@ -381,7 +403,7 @@ export default function HistoryPage() {
                             </div>
                             <div className="bg-white rounded-lg p-4 border border-blue-200">
                                 <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Area</p>
-                                <p className="text-gray-900 font-bold">{user.area.name}</p>
+                                <p className="text-gray-900 font-bold">{selectedDeviceInfo.area_id.name}</p>
                             </div>
                             <div className="bg-white rounded-lg p-4 border border-blue-200">
                                 <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Device</p>
