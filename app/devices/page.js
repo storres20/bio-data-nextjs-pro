@@ -3,11 +3,22 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import HospitalInfoBanner from '@/components/HospitalInfoBanner';
+import HospitalWorkspace from '@/components/HospitalWorkspace';
+import CreateDeviceForm from './CreateDeviceForm';
 import WebSocket from 'isomorphic-ws';
 import { authHeaders, canViewDevice, groupDevicesByArea, liveSocketUrl } from '@/lib/hospitalAccess';
 
 export default function DevicesPage() {
+    return (
+        <HospitalWorkspace>
+            {scope => <Devices key={scope.hospital?._id} {...scope} />}
+        </HospitalWorkspace>
+    );
+}
+
+function Devices({ hospital, areas, areasLoading }) {
     const { user, token, hydrated } = useAuth();
+    const hospitalId = hospital?._id;
     const [devices, setDevices] = useState([]);
     const [connectedSensors, setConnectedSensors] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -26,9 +37,9 @@ export default function DevicesPage() {
 
     // 📥 Obtener dispositivos por hospital
     useEffect(() => {
-        if (!hydrated || !user || !token) return;
+        if (!hydrated || !user || !token || !hospitalId) return;
         const controller = new AbortController();
-        fetch(`${apiBase}/api/devices/hospital/${user.hospital._id}`, {
+        fetch(`${apiBase}/api/devices/hospital/${encodeURIComponent(hospitalId)}`, {
             headers: authHeaders(token),
             signal: controller.signal,
         })
@@ -46,15 +57,15 @@ export default function DevicesPage() {
                 }
             });
         return () => controller.abort();
-    }, [hydrated, user, token, apiBase]);
+    }, [hydrated, user, token, apiBase, hospitalId]);
 
     // 📡 Obtener sensores conectados en tiempo real desde WebSocket
     useEffect(() => {
-        if (!token || !user?.allowedAreas || !apiBase) return;
+        if (!token || !user?.allowedAreas || !apiBase || !hospitalId) return;
         const ws = new WebSocket(liveSocketUrl(apiBase));
         const connected = new Map();
         const canAssign = user.role === 'web-admin';
-        ws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe', token, sensors: canAssign }));
+        ws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe', token, hospitalId, sensors: canAssign }));
 
         const updateOnlineSensors = () => {
             const cutoff = Date.now() - 5000;
@@ -68,7 +79,7 @@ export default function DevicesPage() {
             try {
                 const data = JSON.parse(event.data);
                 if (typeof data.username !== 'string') return;
-                if (!(canViewDevice(user, data.device) || (canAssign && data.type === 'available-sensor'))) return;
+                if (!(canViewDevice(user, data.device, hospitalId) || (canAssign && data.type === 'available-sensor'))) return;
                 const username = data.username;
                 connected.set(username, Date.now());
                 updateOnlineSensors();
@@ -82,7 +93,7 @@ export default function DevicesPage() {
             ws.onmessage = null;
             ws.close();
         };
-    }, [token, user, apiBase]);
+    }, [token, user, apiBase, hospitalId]);
 
     // 🔄 Asignar sensor a un dispositivo
     const assignSensorToDevice = async (deviceId, username, deviceName) => {
@@ -114,7 +125,7 @@ export default function DevicesPage() {
     if (!hydrated || !user) return null;
 
     const normalizedSearch = searchQuery.toLowerCase();
-    const visibleDevices = devices.filter(device => canViewDevice(user, device));
+    const visibleDevices = devices.filter(device => canViewDevice(user, device, hospitalId));
     const filteredDevices = visibleDevices.filter(device => {
         const matchesSearch =
             device.name.toLowerCase().includes(normalizedSearch) ||
@@ -157,7 +168,7 @@ export default function DevicesPage() {
                 </div>
             </div>
 
-            <HospitalInfoBanner user={user} />
+            <HospitalInfoBanner user={{ ...user, hospital, allowedAreas: areas }} />
 
             {/* Success Modal */}
             {showSuccessModal && (
@@ -172,6 +183,20 @@ export default function DevicesPage() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {canAssign && (
+                <CreateDeviceForm
+                    hospital={hospital}
+                    areas={areas}
+                    areasLoading={areasLoading}
+                    token={token}
+                    onCreated={device => {
+                        setDevices(previous => [...previous.filter(item => item._id !== device._id), device]);
+                        setSearchQuery('');
+                        setFilterStatus('all');
+                    }}
+                />
             )}
 
             {/* Main Content */}
@@ -433,7 +458,7 @@ export default function DevicesPage() {
                         <p className="text-gray-600">
                             {searchQuery || filterStatus !== 'all'
                                 ? 'Try adjusting your filters or search terms'
-                                : 'No devices in your authorized areas'}
+                                : canAssign ? 'No devices registered for this hospital' : 'No devices in your authorized areas'}
                         </p>
                     </div>
                 )}

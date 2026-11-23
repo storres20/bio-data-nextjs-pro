@@ -6,7 +6,7 @@ function formatFilterDate(date) {
     return date.split('-').reverse().join('/');
 }
 
-export function downloadHistoryPdf({ user, searchResult, dailyCharts, chartOptions, dateFormatter }) {
+export function downloadHistoryPdf({ searchResult, dailyCharts, chartOptions, dateFormatter }) {
     const { device, from, to, records } = searchResult;
     const pdf = new jsPDF({ format: 'a4', compress: true });
     const margin = 14;
@@ -27,7 +27,7 @@ export function downloadHistoryPdf({ user, searchResult, dailyCharts, chartOptio
         styles: { fontSize: 10, cellPadding: 2 },
         columnStyles: { 0: { fontStyle: 'bold', cellWidth: 26 } },
         body: [
-            ['Hospital', user.hospital?.name ?? '-'],
+            ['Hospital', device.hospital_id?.name ?? '-'],
             ['Area', device.area_id?.name ?? '-'],
             ['Device', device.name ?? '-'],
             ['Brand', device.brand ?? '-'],

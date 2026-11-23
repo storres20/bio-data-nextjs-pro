@@ -5,17 +5,26 @@ import { Line } from 'react-chartjs-2';
 import 'chart.js/auto';
 import { useAuth } from '@/context/AuthContext';
 import HospitalInfoBanner from '@/components/HospitalInfoBanner';
-import { authHeaders, canViewDevice, getAllowedAreas, liveSocketUrl } from '@/lib/hospitalAccess';
+import HospitalWorkspace from '@/components/HospitalWorkspace';
+import { authHeaders, canViewDevice, liveSocketUrl } from '@/lib/hospitalAccess';
 
 export default function DataPage() {
+    return (
+        <HospitalWorkspace>
+            {scope => <Dashboard key={scope.hospital?._id} {...scope} />}
+        </HospitalWorkspace>
+    );
+}
+
+function Dashboard({ hospital, areas }) {
     const { user, token, hydrated } = useAuth();
     const [liveSensors, setConnectedUsers] = useState(new Map());
     const [searchQuery, setSearchQuery] = useState('');
+    const hospitalId = hospital?._id;
     const [selectedSensor, setSelectedSensor] = useState(null);
-    const selectedUser = canViewDevice(user, selectedSensor?.device) ? selectedSensor.username : null;
+    const selectedUser = canViewDevice(user, selectedSensor?.device, hospitalId) ? selectedSensor.username : null;
     const selectedDeviceId = selectedUser ? selectedSensor.device._id : null;
-    const connectedUsers = new Map([...liveSensors].filter(([, reading]) => canViewDevice(user, reading.device)));
-    const areas = getAllowedAreas(user);
+    const connectedUsers = new Map([...liveSensors].filter(([, reading]) => canViewDevice(user, reading.device, hospitalId)));
     const [showInfoModal, setShowInfoModal] = useState(false);
     const [todayData, setTodayData] = useState([]);
     const [loadingTodayData, setLoadingTodayData] = useState(false);
@@ -32,14 +41,14 @@ export default function DataPage() {
     }, [hydrated, token]);
 
     useEffect(() => {
-        if (!hydrated || !user?.allowedAreas || !token || !apiBase) return;
+        if (!hydrated || !user?.allowedAreas || !token || !apiBase || !hospitalId) return;
 
         const socket = new WebSocket(liveSocketUrl(apiBase));
         ws.current = socket;
 
         socket.onopen = () => {
             console.log('WebSocket connected.');
-            socket.send(JSON.stringify({ type: 'subscribe', token }));
+            socket.send(JSON.stringify({ type: 'subscribe', token, hospitalId }));
         };
 
         socket.onmessage = (event) => {
@@ -66,7 +75,7 @@ export default function DataPage() {
             }
 
             const assignedDevice = data.device;
-            if (!canViewDevice(user, assignedDevice)) return;
+            if (!canViewDevice(user, assignedDevice, hospitalId)) return;
             setConnectedUsers((prev) => {
                 const updated = new Map(prev);
                 const existing = updated.get(data.username) || {
@@ -132,7 +141,7 @@ export default function DataPage() {
             socket.onmessage = null;
             if (ws.current) ws.current.close();
         };
-    }, [hydrated, user, token, apiBase]);
+    }, [hydrated, user, token, apiBase, hospitalId]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -394,7 +403,7 @@ export default function DataPage() {
                 </div>
             </div>
 
-            <HospitalInfoBanner user={user} />
+            <HospitalInfoBanner user={{ ...user, hospital, allowedAreas: areas }} />
 
             {showInfoModal && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4">

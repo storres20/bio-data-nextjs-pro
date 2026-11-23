@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import HospitalInfoBanner from '@/components/HospitalInfoBanner';
+import HospitalWorkspace from '@/components/HospitalWorkspace';
 import { Line } from 'react-chartjs-2';
 import 'chart.js/auto';
 import { authHeaders, canViewDevice, groupDevicesByArea } from '@/lib/hospitalAccess';
@@ -32,7 +33,16 @@ const historyMetrics = [
 ];
 
 export default function HistoryPage() {
+    return (
+        <HospitalWorkspace>
+            {scope => <History key={scope.hospital?._id} {...scope} />}
+        </HospitalWorkspace>
+    );
+}
+
+function History({ hospital, areas }) {
     const { user, token, hydrated } = useAuth();
+    const hospitalId = hospital?._id;
     const [devices, setDevices] = useState([]);
     const [selectedDevice, setSelectedDevice] = useState('');
     const [searchResult, setSearchResult] = useState(null);
@@ -45,9 +55,9 @@ export default function HistoryPage() {
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_RAILWAY;
 
     useEffect(() => {
-        if (!hydrated || !user || !token) return;
+        if (!hydrated || !user || !token || !hospitalId) return;
         const controller = new AbortController();
-        fetch(`${apiBase}/api/devices/hospital/${user.hospital._id}`, {
+        fetch(`${apiBase}/api/devices/hospital/${encodeURIComponent(hospitalId)}`, {
             headers: authHeaders(token),
             signal: controller.signal,
         })
@@ -65,7 +75,7 @@ export default function HistoryPage() {
                 }
             });
         return () => controller.abort();
-    }, [hydrated, user, token, apiBase]);
+    }, [hydrated, user, token, apiBase, hospitalId]);
 
     const fetchHistory = async () => {
         const device = visibleDevices.find(dev => dev._id === selectedDevice);
@@ -122,9 +132,9 @@ export default function HistoryPage() {
 
     if (!hydrated || !user || !token) return null;
 
-    const visibleDevices = devices.filter(device => canViewDevice(user, device));
+    const visibleDevices = devices.filter(device => canViewDevice(user, device, hospitalId));
     const deviceGroups = groupDevicesByArea(visibleDevices, device => device.area_id);
-    const selectedDeviceInfo = canViewDevice(user, searchResult?.device) ? searchResult.device : null;
+    const selectedDeviceInfo = canViewDevice(user, searchResult?.device, hospitalId) ? searchResult.device : null;
     const data = selectedDeviceInfo ? searchResult.records : [];
     const filtersMatch = selectedDeviceInfo?._id === selectedDevice
         && searchResult.from === from && searchResult.to === to;
@@ -217,7 +227,6 @@ export default function HistoryPage() {
         try {
             const { downloadHistoryPdf } = await import('./downloadHistoryPdf');
             downloadHistoryPdf({
-                user,
                 searchResult,
                 dailyCharts,
                 chartOptions,
@@ -250,7 +259,7 @@ export default function HistoryPage() {
                 </div>
             </div>
 
-            <HospitalInfoBanner user={user} />
+            <HospitalInfoBanner user={{ ...user, hospital, allowedAreas: areas }} />
 
             {/* Main Content */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -399,7 +408,7 @@ export default function HistoryPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div className="bg-white rounded-lg p-4 border border-blue-200">
                                 <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Hospital</p>
-                                <p className="text-gray-900 font-bold">{user.hospital.name}</p>
+                                <p className="text-gray-900 font-bold">{selectedDeviceInfo.hospital_id.name}</p>
                             </div>
                             <div className="bg-white rounded-lg p-4 border border-blue-200">
                                 <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Area</p>

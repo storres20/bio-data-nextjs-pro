@@ -55,7 +55,9 @@ Deploy the matching frontend and backend versions together. Set a private `JWT_S
 
 Existing accounts retain their previous area until an administrator updates their permissions. New accounts can sign in to see a pending area request. An administrator can grant or revoke access from **Manage Access**.
 
-An operator with database access provisions administrator roles on existing, verified accounts. Set the user's `role` to `hospital-admin` to manage accounts in that user's hospital or to `web-admin` for all hospitals. An administrator's monitoring feed still uses the areas assigned to that account.
+An operator with database access provisions administrator roles on existing, verified accounts. Set the user's `role` to `hospital-admin` to manage accounts in that user's hospital or to `web-admin` for all hospitals. A web administrator selects a hospital in Dashboard, Devices or History to monitor its areas. Other accounts monitor their assigned areas.
+
+To register equipment as a web administrator, select a hospital in **Devices**, open **Add Device**, choose an area and enter the equipment details. Use the new device card to assign its sensor.
 
 Add areas that have no registered equipment to the hospital's `area_ids` in MongoDB. The backend also recognizes area assignments from existing equipment and legacy accounts. Mobile clients that read live data or register for push notifications must authenticate against the new API and WebSocket.
 
