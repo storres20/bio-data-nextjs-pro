@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import HospitalInfoBanner from '@/components/HospitalInfoBanner';
 import WebSocket from 'isomorphic-ws';
 
 export default function DevicesPage() {
@@ -46,7 +47,7 @@ export default function DevicesPage() {
                 connected.set(username, now);
 
                 const filtered = Array.from(connected.entries())
-                    .filter(([_, time]) => now - time < 5000)
+                    .filter(([, time]) => now - time < 5000)
                     .map(([username]) => username);
 
                 setConnectedSensors(filtered);
@@ -88,13 +89,13 @@ export default function DevicesPage() {
 
     if (!hydrated || !user) return null;
 
-    // Filtrar dispositivos
+    const normalizedSearch = searchQuery.toLowerCase();
     const filteredDevices = devices.filter(device => {
         const matchesSearch =
-            device.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            device.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            device.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            device.serie.toLowerCase().includes(searchQuery.toLowerCase());
+            device.name.toLowerCase().includes(normalizedSearch) ||
+            device.brand.toLowerCase().includes(normalizedSearch) ||
+            device.model.toLowerCase().includes(normalizedSearch) ||
+            device.serie.toLowerCase().includes(normalizedSearch);
 
         const matchesFilter =
             filterStatus === 'all' ||
@@ -104,8 +105,11 @@ export default function DevicesPage() {
         return matchesSearch && matchesFilter;
     });
 
-    const assignedCount = devices.filter(d => d.assigned_sensor_username).length;
+    const assignedDevices = devices.filter(device => device.assigned_sensor_username);
+    const assignedCount = assignedDevices.length;
     const unassignedCount = devices.length - assignedCount;
+    const assignedSensors = new Set(assignedDevices.map(device => device.assigned_sensor_username));
+    const availableSensors = connectedSensors.filter(sensor => !assignedSensors.has(sensor));
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -126,38 +130,11 @@ export default function DevicesPage() {
                 </div>
             </div>
 
-            {/* Hospital Info Banner */}
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-                    <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-2">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                            </svg>
-                            <span className="font-semibold">{user.hospital.name}</span>
-                        </div>
-                        <div className="h-6 w-px bg-white/30"></div>
-                        <div className="flex items-center gap-2">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            <span className="text-sm">{user.area.name}</span>
-                        </div>
-                        <div className="h-6 w-px bg-white/30"></div>
-                        <div className="flex items-center gap-2">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                            </svg>
-                            <span className="text-sm">{user.username}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <HospitalInfoBanner user={user} />
 
             {/* Success Modal */}
             {showSuccessModal && (
-                <div className="fixed top-4 right-4 z-50 animate-slideDown">
+                <div className="fixed top-4 right-4 z-50">
                     <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg shadow-lg flex items-start gap-3 max-w-md">
                         <svg className="w-6 h-6 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -366,26 +343,15 @@ export default function DevicesPage() {
                                                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
                                                 >
                                                     <option value="">-- Select Sensor --</option>
-                                                    {(() => {
-                                                        // Filtrar sensores ya asignados
-                                                        const assignedSensors = devices
-                                                            .filter(d => d.assigned_sensor_username)
-                                                            .map(d => d.assigned_sensor_username);
-
-                                                        const availableSensors = connectedSensors.filter(
-                                                            sensor => !assignedSensors.includes(sensor)
-                                                        );
-
-                                                        return availableSensors.length > 0 ? (
-                                                            availableSensors.map((username) => (
-                                                                <option key={username} value={username}>
-                                                                    {username}
-                                                                </option>
-                                                            ))
-                                                        ) : (
-                                                            <option disabled>No available sensors</option>
-                                                        );
-                                                    })()}
+                                                    {availableSensors.length > 0 ? (
+                                                        availableSensors.map(username => (
+                                                            <option key={username} value={username}>
+                                                                {username}
+                                                            </option>
+                                                        ))
+                                                    ) : (
+                                                        <option disabled>No available sensors</option>
+                                                    )}
                                                 </select>
                                             </>
                                         ) : (

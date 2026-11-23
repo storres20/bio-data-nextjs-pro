@@ -12,7 +12,10 @@ export default function Login() {
 
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_RAILWAY;
 
-    const handleLogin = async () => {
+    const handleLogin = async (event) => {
+        event.preventDefault();
+        if (isLoading) return;
+
         setIsLoading(true);
         setErrorMessage('');
 
@@ -31,16 +34,10 @@ export default function Login() {
                 const errorData = await response.json();
                 setErrorMessage(errorData.message);
             }
-        } catch (error) {
+        } catch {
             setErrorMessage('Connection error. Please try again.');
         } finally {
             setIsLoading(false);
-        }
-    };
-
-    const handleKeyPress = (e) => {
-        if (e.key === 'Enter') {
-            handleLogin();
         }
     };
 
@@ -49,11 +46,6 @@ export default function Login() {
             <div className="w-full max-w-md">
                 {/* Header */}
                 <div className="text-center my-4">
-                    {/*<div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-lg mb-4">
-                        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                    </div>*/}
                     <h1 className="text-3xl font-bold text-blue-600 mb-2">Welcome Back</h1>
                     <p className="text-gray-600">Blood Bank Monitoring System</p>
                 </div>
@@ -97,7 +89,7 @@ export default function Login() {
                         )}
 
                         {/* Login Form */}
-                        <div className="space-y-5">
+                        <form onSubmit={handleLogin} className="space-y-5">
                             {/* Username Input */}
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -115,7 +107,6 @@ export default function Login() {
                                         className="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value)}
-                                        onKeyPress={handleKeyPress}
                                         disabled={isLoading}
                                     />
                                 </div>
@@ -138,7 +129,6 @@ export default function Login() {
                                         className="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
-                                        onKeyPress={handleKeyPress}
                                         disabled={isLoading}
                                     />
                                 </div>
@@ -146,7 +136,7 @@ export default function Login() {
 
                             {/* Login Button */}
                             <button
-                                onClick={handleLogin}
+                                type="submit"
                                 disabled={isLoading}
                                 className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-semibold hover:from-blue-700 hover:to-indigo-700 focus:ring-4 focus:ring-blue-300 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
@@ -167,15 +157,9 @@ export default function Login() {
                                     </>
                                 )}
                             </button>
-                        </div>
+                        </form>
                     </div>
                 </div>
-
-                {/* Footer */}
-                {/*<div className="text-center mt-6 text-sm text-gray-600">
-                    <p>MHUTEMP Blood Bank Monitoring System</p>
-                    <p className="text-xs text-gray-500 mt-1">Secure access for authorized personnel only</p>
-                </div>*/}
             </div>
         </div>
     );

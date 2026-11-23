@@ -1,18 +1,16 @@
-// data/page.js - VERSIÓN ACTUALIZADA CON MANEJO DE SENSORES DESCONECTADOS
-
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
 import { Line } from 'react-chartjs-2';
 import 'chart.js/auto';
 import { useAuth } from '@/context/AuthContext';
+import HospitalInfoBanner from '@/components/HospitalInfoBanner';
 
 export default function DataPage() {
     const { user, token, hydrated } = useAuth();
     const [connectedUsers, setConnectedUsers] = useState(new Map());
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedUser, setSelectedUser] = useState(null);
-    const [selectedUserWarning, setSelectedUserWarning] = useState('');
     const [showInfoModal, setShowInfoModal] = useState(false);
     const [todayData, setTodayData] = useState([]);
     const [loadingTodayData, setLoadingTodayData] = useState(false);
@@ -27,28 +25,6 @@ export default function DataPage() {
             window.location.href = '/login';
         }
     }, [hydrated, token]);
-
-    // ⬇️ FUNCIÓN MEJORADA: Manejar valores null
-    const checkForWarnings = (latestTemp, latestHum, latestDsTemp) => {
-        let message = '';
-
-        // Solo validar si el valor NO es null
-        // TEMPORALMENTE DESACTIVADO:
-        // No evaluar Temp.OUT con el rango 2-6 °C
-        // porque ULT26-001 corresponde a congelador de plasma.
-
-        /*
-        if (latestDsTemp !== null) {
-            if (latestDsTemp > 6)
-                message += `⚠️ Temperature (${latestDsTemp}°C) exceeds maximum threshold (6°C). `;
-
-            if (latestDsTemp < 2)
-                message += `⚠️ Temperature (${latestDsTemp}°C) below minimum threshold (2°C). `;
-        }
-        */
-
-        return message;
-    };
 
     useEffect(() => {
         if (!hydrated || !user?.username) return;
@@ -99,8 +75,6 @@ export default function DataPage() {
                     datetimeHistory: []
                 };
 
-                const warning = checkForWarnings(data.temperature, data.humidity, data.dsTemperature);
-
                 const MAX_CHART_POINTS = 10;
 
                 // ⬇️ NUEVO: Solo agregar a historial si el valor NO es null
@@ -135,13 +109,7 @@ export default function DataPage() {
                             hour: '2-digit', minute: '2-digit', second: '2-digit'
                         })]
                         : existing.datetimeHistory,
-                    warningMessage: warning,
-                    device: assignedDevice,
-                    // ⬇️ NUEVO: Indicadores de sensores activos
-                    sensorsActive: {
-                        dht: data.temperature !== null && data.humidity !== null,
-                        ds18b20: data.dsTemperature !== null
-                    }
+                    device: assignedDevice
                 });
 
                 return updated;
@@ -417,37 +385,11 @@ export default function DataPage() {
                 </div>
             </div>
 
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-                    <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-2">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                            </svg>
-                            <span className="font-semibold">{user.hospital.name}</span>
-                        </div>
-                        <div className="h-6 w-px bg-white/30"></div>
-                        <div className="flex items-center gap-2">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            <span className="text-sm">{user.area.name}</span>
-                        </div>
-                        <div className="h-6 w-px bg-white/30"></div>
-                        <div className="flex items-center gap-2">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                            </svg>
-                            <span className="text-sm">{user.username}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <HospitalInfoBanner user={user} />
 
             {showInfoModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4 animate-fadeIn">
-                    <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-slideUp">
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+                    <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
                         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
                             <h2 className="text-xl font-bold text-white flex items-center gap-2">
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -504,30 +446,13 @@ export default function DataPage() {
                     <div className="space-y-6">
                         <button
                             className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm font-medium text-gray-700"
-                            onClick={() => {
-                                setSelectedUser(null);
-                                setSelectedUserWarning('');
-                            }}
+                            onClick={() => setSelectedUser(null)}
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                             </svg>
                             Back to Overview
                         </button>
-
-                        {selectedUserWarning && (
-                            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg shadow-sm animate-pulse">
-                                <div className="flex items-start gap-3">
-                                    <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                    </svg>
-                                    <div className="flex-1">
-                                        <h3 className="text-red-900 font-bold mb-1">Critical Alert</h3>
-                                        <p className="text-red-800 text-sm">{selectedUserWarning}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
 
                         <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
                             <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
@@ -847,27 +772,23 @@ export default function DataPage() {
                             {[...connectedUsers.entries()]
                                 .filter(([user]) => user.toLowerCase().includes(searchQuery))
                                 .map(([user, data]) => {
-                                    const hasWarning = data.warningMessage;
-                                    // const isCriticalTemp = data.dsTemperature !== null && (data.dsTemperature > 6 || data.dsTemperature < 2);
-                                    const isCriticalTemp = false;
                                     const doorConfig = getDoorStatusConfig(data.doorStatus);
                                     const isDoorOpen = data.doorStatus === 'open';
                                     const hasSensorError = data.dsTemperature === null || data.temperature === null || data.humidity === null;
+                                    // El congelador de plasma ULT26-001 tiene un rango distinto de 2–6 °C.
+                                    const needsAttention = isDoorOpen || hasSensorError;
 
                                     return (
                                         <div
                                             key={user}
                                             className={`group relative rounded-xl shadow-md border-2 transition-all duration-300 cursor-pointer hover:shadow-xl hover:scale-[1.02] overflow-hidden ${
-                                                hasWarning || isDoorOpen || hasSensorError
+                                                needsAttention
                                                     ? 'bg-gradient-to-br from-red-50 to-orange-50 border-red-400 hover:border-red-500'
                                                     : 'bg-white border-gray-200 hover:border-blue-400'
                                             }`}
-                                            onClick={() => {
-                                                setSelectedUser(user);
-                                                setSelectedUserWarning(data.warningMessage);
-                                            }}
+                                            onClick={() => setSelectedUser(user)}
                                         >
-                                            {(hasWarning || isDoorOpen || hasSensorError) && (
+                                            {needsAttention && (
                                                 <div className="absolute top-0 right-0 bg-red-600 text-white px-3 py-1 text-xs font-bold rounded-bl-lg flex items-center gap-1 shadow-lg animate-pulse">
                                                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                                         <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -892,7 +813,7 @@ export default function DataPage() {
                                                             {data.datetime}
                                                         </p>
                                                     </div>
-                                                    <div className={`w-3 h-3 rounded-full ${hasWarning || isDoorOpen || hasSensorError ? 'bg-red-500' : 'bg-green-500'} animate-pulse`}></div>
+                                                    <div className={`w-3 h-3 rounded-full ${needsAttention ? 'bg-red-500' : 'bg-green-500'} animate-pulse`}></div>
                                                 </div>
 
                                                 <div className={`${doorConfig.bgColor} ${doorConfig.borderColor} border-2 rounded-lg p-3 mb-3 ${doorConfig.pulse ? 'animate-pulse' : ''}`}>
@@ -918,9 +839,7 @@ export default function DataPage() {
                                                     <div className={`rounded-lg p-3 ${
                                                         data.dsTemperature === null
                                                             ? 'bg-red-100 border border-red-300'
-                                                            : isCriticalTemp
-                                                                ? 'bg-red-100 border border-red-300'
-                                                                : 'bg-cyan-50 border border-cyan-200'
+                                                            : 'bg-cyan-50 border border-cyan-200'
                                                     }`}>
                                                         <div className="flex items-center justify-between">
                                                             <span className="text-xs font-semibold text-gray-700 uppercase flex items-center gap-2">
@@ -938,17 +857,12 @@ export default function DataPage() {
                                                         <p className={`text-2xl font-bold mt-1 ${
                                                             data.dsTemperature === null
                                                                 ? 'text-red-700'
-                                                                : isCriticalTemp
-                                                                    ? 'text-red-700'
-                                                                    : 'text-gray-900'
+                                                                : 'text-gray-900'
                                                         }`}>
                                                             {formatSensorValue(data.dsTemperature, ' °C')}
                                                         </p>
                                                         {data.dsTemperature === null && (
                                                             <p className="text-xs text-red-700 mt-1 font-medium">Disconnected sensor</p>
-                                                        )}
-                                                        {data.dsTemperature !== null && isCriticalTemp && (
-                                                            <p className="text-xs text-red-700 mt-1 font-medium">Out of range (2-6°C)</p>
                                                         )}
                                                     </div>
 

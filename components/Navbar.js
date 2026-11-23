@@ -10,8 +10,6 @@ export default function Navbar() {
         <nav className="bg-gray-800 shadow px-6 py-4 flex items-center justify-between">
             {/* Left side: Navigation Links */}
             <div className="flex items-center gap-6">
-                {/*<span className="text-xl font-bold text-blue-600">Bio-Data</span>*/}
-
                 {user && (
                     <>
                         <Link href="/data" className="text-white hover:text-blue-600">Dashboard</Link>
@@ -26,7 +24,6 @@ export default function Navbar() {
             <div className="flex items-center gap-4">
                 {user ? (
                     <>
-                        {/*<span className="text-sm text-gray-600">Logged in as <strong>{user.username}</strong></span>*/}
                         <button
                             onClick={logout}
                             className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition"

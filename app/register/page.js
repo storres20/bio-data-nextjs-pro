@@ -29,7 +29,12 @@ export default function Register() {
             .catch((err) => console.error('Error fetching areas:', err));
     }, [apiBase]);
 
-    const handleRegister = async () => {
+    const isFormValid = username && password && selectedHospital && selectedArea;
+
+    const handleRegister = async (event) => {
+        event.preventDefault();
+        if (isLoading || !isFormValid) return;
+
         setIsLoading(true);
         setMessage('');
         setMessageType('');
@@ -59,7 +64,7 @@ export default function Register() {
                 setMessage(errorData.message || 'Registration failed. Please try again.');
                 setMessageType('error');
             }
-        } catch (error) {
+        } catch {
             setMessage('Connection error. Please try again.');
             setMessageType('error');
         } finally {
@@ -67,24 +72,11 @@ export default function Register() {
         }
     };
 
-    const handleKeyPress = (e) => {
-        if (e.key === 'Enter' && username && password && selectedHospital && selectedArea) {
-            handleRegister();
-        }
-    };
-
-    const isFormValid = username && password && selectedHospital && selectedArea;
-
     return (
         <div className="bg-gradient-to-br  flex items-center justify-center">
             <div className="w-full max-w-md">
                 {/* Header */}
                 <div className="text-center my-4">
-                    {/*<div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-green-600 to-emerald-600 rounded-2xl shadow-lg mb-4">
-                        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                        </svg>
-                    </div>*/}
                     <h1 className="text-3xl font-bold text-green-900 mb-2">Create Account</h1>
                     <p className="text-gray-600">Blood Bank Monitoring System</p>
                 </div>
@@ -124,7 +116,7 @@ export default function Register() {
                         )}
 
                         {/* Registration Form */}
-                        <div className="space-y-5">
+                        <form onSubmit={handleRegister} className="space-y-5">
                             {/* Username Input */}
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -142,7 +134,6 @@ export default function Register() {
                                         className="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all shadow-sm"
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value)}
-                                        onKeyPress={handleKeyPress}
                                         disabled={isLoading}
                                     />
                                 </div>
@@ -165,7 +156,6 @@ export default function Register() {
                                         className="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all shadow-sm"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
-                                        onKeyPress={handleKeyPress}
                                         disabled={isLoading}
                                     />
                                 </div>
@@ -238,7 +228,7 @@ export default function Register() {
 
                             {/* Register Button */}
                             <button
-                                onClick={handleRegister}
+                                type="submit"
                                 disabled={isLoading || !isFormValid}
                                 className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-semibold hover:from-green-700 hover:to-emerald-700 focus:ring-4 focus:ring-green-300 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
@@ -272,15 +262,9 @@ export default function Register() {
                                     </Link>
                                 </p>
                             </div>
-                        </div>
+                        </form>
                     </div>
                 </div>
-
-                {/* Footer */}
-                {/*<div className="text-center mt-6 text-sm text-gray-600">
-                    <p>MHUTEMP Blood Bank Monitoring System</p>
-                    <p className="text-xs text-gray-500 mt-1">Secure registration for authorized personnel</p>
-                </div>*/}
             </div>
         </div>
     );
