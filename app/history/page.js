@@ -57,7 +57,7 @@ function History({ hospital, areas }) {
     useEffect(() => {
         if (!hydrated || !user || !token || !hospitalId) return;
         const controller = new AbortController();
-        fetch(`${apiBase}/api/devices/hospital/${encodeURIComponent(hospitalId)}`, {
+        fetch(`${apiBase}/api/devices/hospital/${encodeURIComponent(hospitalId)}?includeArchived=true`, {
             headers: authHeaders(token),
             signal: controller.signal,
         })
@@ -294,7 +294,7 @@ function History({ hospital, areas }) {
                                         <optgroup key={area._id} label={area.name}>
                                             {items.map(dev => (
                                                 <option key={dev._id} value={dev._id}>
-                                                    {dev.name} ({dev.brand} {dev.model})
+                                                    {dev.name} ({dev.brand} {dev.model}){dev.archived_at ? " ? Archivado" : ""}
                                                 </option>
                                             ))}
                                         </optgroup>
@@ -417,6 +417,7 @@ function History({ hospital, areas }) {
                             <div className="bg-white rounded-lg p-4 border border-blue-200">
                                 <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Device</p>
                                 <p className="text-gray-900 font-bold">{selectedDeviceInfo.name}</p>
+                                {selectedDeviceInfo.archived_at && <span className="text-xs font-semibold text-amber-800">Archivado</span>}
                             </div>
                             <div className="bg-white rounded-lg p-4 border border-blue-200">
                                 <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Model</p>

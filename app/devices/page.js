@@ -16,13 +16,18 @@ export default function DevicesPage() {
     );
 }
 
-function Devices({ hospital, areas, areasLoading }) {
+function Devices({ hospital, areas }) {
     const { user, token, hydrated } = useAuth();
     const hospitalId = hospital?._id;
     const [devices, setDevices] = useState([]);
     const [connectedSensors, setConnectedSensors] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [filterStatus, setFilterStatus] = useState('all'); // all, assigned, unassigned
+    const [filterStatus, setFilterStatus] = useState('all');
+    const [archiveFilter, setArchiveFilter] = useState('active');
+    const [editingDevice, setEditingDevice] = useState(null);
+    const [deviceAction, setDeviceAction] = useState(null);
+    const [actionMessage, setActionMessage] = useState('');
+    const [actionError, setActionError] = useState('');
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
 
@@ -39,7 +44,7 @@ function Devices({ hospital, areas, areasLoading }) {
     useEffect(() => {
         if (!hydrated || !user || !token || !hospitalId) return;
         const controller = new AbortController();
-        fetch(`${apiBase}/api/devices/hospital/${encodeURIComponent(hospitalId)}`, {
+        fetch(`${apiBase}/api/devices/hospital/${encodeURIComponent(hospitalId)}?includeArchived=true`, {
             headers: authHeaders(token),
             signal: controller.signal,
         })
@@ -122,11 +127,46 @@ function Devices({ hospital, areas, areasLoading }) {
         }
     };
 
+    const updateDeviceStatus = async (device, action) => {
+        if (deviceAction) return;
+        const isDelete = action === 'delete';
+        const archive = action === 'archive';
+        if (isDelete && !window.confirm('Permanently delete ?' + device.name + '?? This cannot be undone.')) return;
+        if (archive && !window.confirm('Archive ?' + device.name + '? and release its sensor? History will be preserved.')) return;
+        setDeviceAction(device._id);
+        setActionMessage('');
+        setActionError('');
+        try {
+            const suffix = isDelete ? '' : '/archive';
+            const response = await fetch(`${apiBase}/api/devices/${encodeURIComponent(device._id)}${suffix}`, {
+                method: isDelete ? 'DELETE' : 'PATCH',
+                headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+                ...(isDelete ? {} : { body: JSON.stringify({ archived: archive }) }),
+            });
+            if (!response.ok) {
+                const body = await response.json().catch(() => null);
+                throw new Error(body?.message || 'Could not update the device.');
+            }
+            const updated = isDelete ? null : await response.json();
+            setDevices(previous => updated ? previous.map(item => item._id === device._id ? updated : item)
+                : previous.filter(item => item._id !== device._id));
+            setEditingDevice(current => current?._id === device._id ? null : current);
+            setActionMessage(device.name + (isDelete ? ' deleted permanently.' : archive ? ' archived.' : ' restored.'));
+        } catch (err) {
+            setActionError(err.message);
+        } finally {
+            setDeviceAction(null);
+        }
+    };
+
     if (!hydrated || !user) return null;
 
     const normalizedSearch = searchQuery.toLowerCase();
     const visibleDevices = devices.filter(device => canViewDevice(user, device, hospitalId));
+    const activeDevices = visibleDevices.filter(device => !device.archived_at);
     const filteredDevices = visibleDevices.filter(device => {
+        if (archiveFilter === 'active' && device.archived_at) return false;
+        if (archiveFilter === 'archived' && !device.archived_at) return false;
         const matchesSearch =
             device.name.toLowerCase().includes(normalizedSearch) ||
             device.brand.toLowerCase().includes(normalizedSearch) ||
@@ -134,7 +174,7 @@ function Devices({ hospital, areas, areasLoading }) {
             device.serie.toLowerCase().includes(normalizedSearch);
 
         const matchesFilter =
-            filterStatus === 'all' ||
+            Boolean(device.archived_at) || filterStatus === 'all' ||
             (filterStatus === 'assigned' && device.assigned_sensor_username) ||
             (filterStatus === 'unassigned' && !device.assigned_sensor_username);
 
@@ -142,9 +182,9 @@ function Devices({ hospital, areas, areasLoading }) {
     });
 
     const deviceGroups = groupDevicesByArea(filteredDevices, device => device.area_id);
-    const assignedDevices = visibleDevices.filter(device => device.assigned_sensor_username);
+    const assignedDevices = activeDevices.filter(device => device.assigned_sensor_username);
     const assignedCount = assignedDevices.length;
-    const unassignedCount = visibleDevices.length - assignedCount;
+    const unassignedCount = activeDevices.length - assignedCount;
     const assignedSensors = new Set(assignedDevices.map(device => device.assigned_sensor_username));
     const availableSensors = connectedSensors.filter(sensor => !assignedSensors.has(sensor));
     const canAssign = user.role === 'web-admin';
@@ -188,13 +228,17 @@ function Devices({ hospital, areas, areasLoading }) {
             {canAssign && (
                 <CreateDeviceForm
                     hospital={hospital}
-                    areas={areas}
-                    areasLoading={areasLoading}
+                    editingDevice={editingDevice}
                     token={token}
-                    onCreated={device => {
+                    onCancelEdit={() => setEditingDevice(null)}
+                    onSaved={(device, wasEditing) => {
                         setDevices(previous => [...previous.filter(item => item._id !== device._id), device]);
-                        setSearchQuery('');
-                        setFilterStatus('all');
+                        setEditingDevice(null);
+                        if (!wasEditing) {
+                            setArchiveFilter('active');
+                            setSearchQuery('');
+                            setFilterStatus('all');
+                        }
                     }}
                 />
             )}
@@ -206,8 +250,8 @@ function Devices({ hospital, areas, areasLoading }) {
                     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-medium text-gray-600">Total Devices</p>
-                                <p className="text-3xl font-bold text-gray-900 mt-1">{visibleDevices.length}</p>
+                                <p className="text-sm font-medium text-gray-600">Active Devices</p>
+                                <p className="text-3xl font-bold text-gray-900 mt-1">{activeDevices.length}</p>
                             </div>
                             <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                                 <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -320,13 +364,27 @@ function Devices({ hospital, areas, areasLoading }) {
                     </div>
                 </div>
 
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2 text-sm font-semibold">
+                        Device status
+                        <select value={archiveFilter} onChange={event => setArchiveFilter(event.target.value)} className="rounded-lg border border-gray-300 bg-white px-3 py-2">
+                            <option value="active">Active</option>
+                            <option value="archived">Archived</option>
+                            <option value="all">All</option>
+                        </select>
+                    </label>
+                    {actionMessage && <p role="status" className="text-sm text-green-800">{actionMessage}</p>}
+                    {actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}
+                </div>
+
                 {/* Devices Grid */}
                 {deviceGroups.map(({ area, items }) => (
                     <section key={area._id} className="mb-6 overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
                         <h2 className="bg-blue-700 px-5 py-3 text-lg font-semibold text-white">{area.name}</h2>
                         <div className="grid grid-cols-1 gap-6 p-5 md:grid-cols-2 lg:grid-cols-3">
                     {items.map((device) => {
-                        const isAssigned = !!device.assigned_sensor_username;
+                        const archived = Boolean(device.archived_at);
+                        const isAssigned = !archived && Boolean(device.assigned_sensor_username);
                         const sensorIsOnline = connectedSensors.includes(device.assigned_sensor_username);
 
                         return (
@@ -351,6 +409,7 @@ function Devices({ hospital, areas, areasLoading }) {
                                                 </svg>
                                                 {device.name}
                                             </h2>
+                                            {archived && <span className="inline-block rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">Archivado</span>}
                                         </div>
                                         {isAssigned && sensorIsOnline && (
                                             <div className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs font-semibold">
@@ -382,8 +441,20 @@ function Devices({ hospital, areas, areasLoading }) {
                                         </div>
                                     </div>
 
+                                    {canAssign && (
+                                        <div className="mb-4 flex flex-wrap gap-2">
+                                            <button type="button" disabled={Boolean(deviceAction)} onClick={() => {
+                                                setEditingDevice(device);
+                                                document.getElementById("device-editor")?.scrollIntoView({ block: "start" });
+                                            }} className="rounded border border-blue-300 px-3 py-1.5 text-sm font-semibold text-blue-800">Edit</button>
+                                            <button type="button" disabled={Boolean(deviceAction)} onClick={() => updateDeviceStatus(device, archived ? "restore" : "archive")} className="rounded border border-gray-300 px-3 py-1.5 text-sm font-semibold">
+                                                {archived ? "Restore" : "Archive"}
+                                            </button>
+                                            {archived && <button type="button" disabled={Boolean(deviceAction)} onClick={() => updateDeviceStatus(device, "delete")} className="rounded border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-800">Delete permanently</button>}
+                                        </div>
+                                    )}
                                     {/* Sensor Assignment */}
-                                    <div className="border-t border-gray-200 pt-4">
+                                    {!archived && <div className="border-t border-gray-200 pt-4">
                                         {!isAssigned && canAssign && (
                                             <>
                                                 <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
@@ -439,7 +510,7 @@ function Devices({ hospital, areas, areasLoading }) {
                                                 </button>}
                                             </div>
                                         )}
-                                    </div>
+                                    </div>}
                                 </div>
                             </div>
                         );
@@ -456,7 +527,7 @@ function Devices({ hospital, areas, areasLoading }) {
                         </svg>
                         <h3 className="text-xl font-semibold text-gray-900 mb-2">No Devices Found</h3>
                         <p className="text-gray-600">
-                            {searchQuery || filterStatus !== 'all'
+                            {searchQuery || filterStatus !== 'all' || archiveFilter !== 'active'
                                 ? 'Try adjusting your filters or search terms'
                                 : canAssign ? 'No devices registered for this hospital' : 'No devices in your authorized areas'}
                         </p>

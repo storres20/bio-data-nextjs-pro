@@ -55,6 +55,8 @@ Deploy the matching frontend and backend versions together. Set a private `JWT_S
 
 Existing accounts retain their previous area until an administrator updates their permissions. New accounts can sign in to see a pending area request. An administrator can grant or revoke access from **Manage Access**.
 
+Administrators can also create accounts and generate a one-time setup or password reset link from **Manage Access**. Share the link privately. It expires after one hour. With a local admin frontend, set `NEXT_PUBLIC_APP_ORIGIN` to the public frontend origin if the recipient must open the link remotely.
+
 An operator with database access provisions administrator roles on existing, verified accounts. Set the user's `role` to `hospital-admin` to manage accounts in that user's hospital or to `web-admin` for all hospitals. A web administrator selects a hospital in Dashboard, Devices or History to monitor its areas. Other accounts monitor their assigned areas.
 
 To register equipment as a web administrator, select a hospital in **Devices**, open **Add Device**, choose an area and enter the equipment details. Use the new device card to assign its sensor.
