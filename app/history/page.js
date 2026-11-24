@@ -49,7 +49,7 @@ function History({ hospital, areas }) {
     const [from, setFrom] = useState('');
     const [to, setTo] = useState('');
     const [loading, setLoading] = useState(false);
-    const [exportingPdf, setExportingPdf] = useState(false);
+    const [exportingPdf, setExportingPdf] = useState(null);
     const [error, setError] = useState('');
 
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_RAILWAY;
@@ -219,16 +219,16 @@ function History({ hospital, areas }) {
         return { day, count: records.length, charts };
     });
 
-    const generatePDF = async () => {
+    const generatePDF = async (mode) => {
         if (!filtersMatch || !data.length || loading || exportingPdf) return;
 
         setError('');
-        setExportingPdf(true);
+        setExportingPdf(mode);
         try {
             const { downloadHistoryPdf } = await import('./downloadHistoryPdf');
             downloadHistoryPdf({
                 searchResult,
-                dailyCharts,
+                dailyCharts: mode === 'report' ? dailyCharts : undefined,
                 chartOptions,
                 dateFormatter: historyDateFormatter,
             });
@@ -236,7 +236,7 @@ function History({ hospital, areas }) {
             console.error('History PDF error:', err);
             setError('Failed to generate the PDF. Please try again.');
         } finally {
-            setExportingPdf(false);
+            setExportingPdf(null);
         }
     };
 
@@ -345,10 +345,10 @@ function History({ hospital, areas }) {
                     </div>
 
                     {/* Search Button */}
-                    <div className="mt-4 flex gap-3">
+                    <div className="mt-4 flex flex-wrap gap-3">
                         <button
                             onClick={fetchHistory}
-                            disabled={loading || exportingPdf}
+                            disabled={loading || Boolean(exportingPdf)}
                             className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {loading ? (
@@ -370,15 +370,25 @@ function History({ hospital, areas }) {
 
                         {data.length > 0 && selectedDeviceInfo && (
                             <button
-                                onClick={generatePDF}
-                                disabled={!filtersMatch || loading || exportingPdf}
+                                onClick={() => generatePDF('report')}
+                                disabled={!filtersMatch || loading || Boolean(exportingPdf)}
                                 title={filtersMatch ? undefined : 'Search again to download a report with these filters'}
                                 className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-md font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
-                                {exportingPdf ? 'Generating PDF…' : 'Download PDF Report'}
+                                {exportingPdf === 'report' ? 'Generating PDF…' : 'Download PDF Report'}
+                            </button>
+                        )}
+                        {data.length > 0 && selectedDeviceInfo && (
+                            <button
+                                onClick={() => generatePDF('data')}
+                                disabled={!filtersMatch || loading || Boolean(exportingPdf)}
+                                title={filtersMatch ? undefined : 'Search again to download a report with these filters'}
+                                className="flex items-center gap-2 px-6 py-3 border border-green-600 bg-white text-green-700 rounded-lg hover:bg-green-50 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {exportingPdf === 'data' ? 'Generating PDF…' : 'Download Data PDF'}
                             </button>
                         )}
                     </div>

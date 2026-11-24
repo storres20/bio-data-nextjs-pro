@@ -6,7 +6,7 @@ function formatFilterDate(date) {
     return date.split('-').reverse().join('/');
 }
 
-export function downloadHistoryPdf({ searchResult, dailyCharts, chartOptions, dateFormatter }) {
+export function downloadHistoryPdf({ searchResult, dailyCharts = [], chartOptions, dateFormatter }) {
     const { device, from, to, records } = searchResult;
     const pdf = new jsPDF({ format: 'a4', compress: true });
     const margin = 14;
@@ -52,10 +52,14 @@ export function downloadHistoryPdf({ searchResult, dailyCharts, chartOptions, da
         ]),
     });
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 1100;
-    canvas.height = 400;
-    const chartHeight = contentWidth * canvas.height / canvas.width;
+    const canvas = dailyCharts.length ? document.createElement('canvas') : null;
+    const chartWidthPx = 1100;
+    const chartHeightPx = 400;
+    const chartHeight = contentWidth * chartHeightPx / chartWidthPx;
+    if (canvas) {
+        canvas.width = chartWidthPx;
+        canvas.height = chartHeightPx;
+    }
 
     for (const { day, charts } of dailyCharts) {
         pdf.addPage();
@@ -94,5 +98,6 @@ export function downloadHistoryPdf({ searchResult, dailyCharts, chartOptions, da
     }
 
     const deviceName = (device.model || device.name || device._id).replace(/[^a-z0-9_-]+/gi, '_');
-    pdf.save(`historial_${deviceName}_${from || 'inicio'}_a_${to || 'fin'}.pdf`);
+    const filePrefix = dailyCharts.length ? 'historial' : 'historial_datos';
+    pdf.save(`${filePrefix}_${deviceName}_${from || 'inicio'}_a_${to || 'fin'}.pdf`);
 }
