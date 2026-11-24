@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { authHeaders, canManageAccess } from '@/lib/hospitalAccess';
+import AreaManagement from './AreaManagement';
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_RAILWAY;
 const roles = { user: 'User', 'hospital-admin': 'Hospital administrator', 'web-admin': 'Web administrator' };
@@ -31,6 +32,7 @@ export default function AccessPage() {
     const [link, setLink] = useState('');
     const [busy, setBusy] = useState(false);
     const [refresh, setRefresh] = useState(0);
+    const [tab, setTab] = useState('users');
     const hospitalId = isWebAdmin && hospitalSelection ? hospitalSelection : user?.hospital?._id;
     const currentCatalog = catalog?.hospitalId === hospitalId ? catalog : null;
     const target = currentCatalog?.users.find(account => account._id === form?._id);
@@ -105,6 +107,10 @@ export default function AccessPage() {
                 const result = await request(endpoint + '/reset-password', { ...config, method: 'POST' });
                 resetLink(result.resetToken);
                 setMessage('Share this one-time link privately.');
+            } else if (action === 'reject-area') {
+                const result = await request(endpoint + '/area-request', { ...config, method: 'DELETE' });
+                setForm(result.user);
+                setMessage('Area request rejected.');
             } else if (action === 'delete') {
                 await request(endpoint, { ...config, method: 'DELETE' });
                 setForm(null);
@@ -135,7 +141,18 @@ export default function AccessPage() {
         <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
             <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
                 <h1 className="mb-2 text-2xl font-bold text-gray-900">Manage Access</h1>
-                <h2 className="text-lg font-semibold text-gray-700">Users and permissions</h2>
+                <nav aria-label="Manage Access" className="flex gap-3 border-b border-gray-200">
+                    <button type="button" aria-pressed={tab === 'users'} disabled={busy} onClick={() => setTab('users')}
+                        className={`px-3 py-2 text-sm font-semibold ${tab === 'users' ? 'border-b-2 border-blue-700 text-blue-800' : 'text-gray-600'}`}>Users and permissions</button>
+                    <button type="button" aria-pressed={tab === 'areas'} disabled={busy} onClick={() => { clearFeedback(); setTab('areas'); }}
+                        className={`px-3 py-2 text-sm font-semibold ${tab === 'areas' ? 'border-b-2 border-blue-700 text-blue-800' : 'text-gray-600'}`}>Áreas</button>
+                </nav>
+                {tab === 'areas' && (
+                    <AreaManagement user={user} token={token} hospitalId={hospitalId} hospitals={selectedHospitals}
+                        onHospitalChange={id => { setHospitalSelection(id); setForm(null); }}
+                        onChanged={() => setRefresh(value => value + 1)} />
+                )}
+                {tab === 'users' && (
                 <section className="mt-5 space-y-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
                     {isWebAdmin ? (
                         <label className="block space-y-1 text-sm font-semibold">
@@ -199,7 +216,14 @@ export default function AccessPage() {
                                 )}
                                 <fieldset className="space-y-2">
                                     <legend className="font-semibold text-gray-900">Authorized areas</legend>
-                                    {requestedArea && <p className="text-sm text-amber-800">Requested area · {requestedArea.name}</p>}
+                                    {requestedArea && (
+                                        <div className="flex flex-wrap items-center gap-2 text-sm text-amber-800">
+                                            <span>Requested area · {requestedArea.name}</span>
+                                            <button type="button" disabled={busy} onClick={() => {
+                                                if (window.confirm('Reject this area request?')) mutate('reject-area');
+                                            }} className="rounded border border-amber-300 px-2 py-1">Reject request</button>
+                                        </div>
+                                    )}
                                     {!areas && <p className="text-sm text-gray-600">Loading areas…</p>}
                                     {areas?.length === 0 && <p className="text-sm text-gray-600">No areas in this hospital.</p>}
                                     {areas?.map(area => (
@@ -239,6 +263,7 @@ export default function AccessPage() {
                         <input readOnly value={link} onFocus={event => event.target.select()} className="block w-full rounded-lg border border-gray-300 p-2.5 font-mono" />
                     </label>}
                 </section>
+                )}
             </div>
         </main>
     );
