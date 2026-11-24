@@ -6,31 +6,9 @@ import HospitalInfoBanner from '@/components/HospitalInfoBanner';
 import HospitalWorkspace from '@/components/HospitalWorkspace';
 import { Line } from 'react-chartjs-2';
 import 'chart.js/auto';
+import AreaHistoryReport from './AreaHistoryReport';
+import { buildDailyCharts, chartOptions, fetchDeviceHistory, historyDateFormatter } from './historyReportData';
 import { authHeaders, canViewDevice, groupDevicesByArea } from '@/lib/hospitalAccess';
-
-const historyDateFormatter = new Intl.DateTimeFormat('es-PE', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: true, timeZone: 'America/Lima'
-});
-
-const historyMetrics = [
-    {
-        label: 'Temp.OUT (°C)', field: 'dsTemperature', color: 'rgba(6, 182, 212, 1)',
-        title: 'Temperature OUT (Probe) - °C', marker: 'bg-cyan-500',
-        panel: 'from-cyan-50 to-cyan-100 border-cyan-200',
-    },
-    {
-        label: 'Temp.IN (°C)', field: 'temperature', color: 'rgba(244, 63, 94, 1)',
-        title: 'Temperature IN (Ambient) - °C', marker: 'bg-rose-500',
-        panel: 'from-rose-50 to-rose-100 border-rose-200',
-    },
-    {
-        label: 'Hum.IN (%)', field: 'humidity', color: 'rgba(99, 102, 241, 1)',
-        title: 'Humidity IN (Ambient) - %', marker: 'bg-indigo-500',
-        panel: 'from-indigo-50 to-indigo-100 border-indigo-200',
-    },
-];
 
 export default function HistoryPage() {
     return (
@@ -44,6 +22,8 @@ function History({ hospital, areas }) {
     const { user, token, hydrated } = useAuth();
     const hospitalId = hospital?._id;
     const [devices, setDevices] = useState([]);
+    const [deviceListState, setDeviceListState] = useState('loading');
+    const [reportScope, setReportScope] = useState('device');
     const [selectedDevice, setSelectedDevice] = useState('');
     const [searchResult, setSearchResult] = useState(null);
     const [from, setFrom] = useState('');
@@ -57,6 +37,7 @@ function History({ hospital, areas }) {
     useEffect(() => {
         if (!hydrated || !user || !token || !hospitalId) return;
         const controller = new AbortController();
+        setDeviceListState('loading');
         fetch(`${apiBase}/api/devices/hospital/${encodeURIComponent(hospitalId)}?includeArchived=true`, {
             headers: authHeaders(token),
             signal: controller.signal,
@@ -66,11 +47,16 @@ function History({ hospital, areas }) {
                 return res.json();
             })
             .then(result => {
-                if (!controller.signal.aborted) setDevices(result);
+                if (!Array.isArray(result)) throw new Error('Invalid device response');
+                if (!controller.signal.aborted) {
+                    setDevices(result);
+                    setDeviceListState('ready');
+                }
             })
             .catch(() => {
                 if (!controller.signal.aborted) {
                     setDevices([]);
+                    setDeviceListState('error');
                     setError('Failed to load devices.');
                 }
             });
@@ -94,14 +80,7 @@ function History({ hospital, areas }) {
         setSearchResult(null);
 
         try {
-            const url = new URL(`${apiBase}/api/v1/datas/by-device/${encodeURIComponent(device._id)}`);
-            if (from) url.searchParams.set('from', new Date(`${from}T00:00:00.000-05:00`).toISOString());
-            if (to) url.searchParams.set('to', new Date(`${to}T23:59:59.999-05:00`).toISOString());
-
-            const response = await fetch(url, { headers: authHeaders(token) });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const records = await response.json();
-            if (!Array.isArray(records)) throw new Error('Invalid history response');
+            const records = await fetchDeviceHistory(device._id, { from, to, token });
 
             setSearchResult({ device, from, to, records });
             if (records.length === 0) {
@@ -115,21 +94,6 @@ function History({ hospital, areas }) {
         }
     };
 
-    const groupByDay = (dataset) => {
-        return dataset.reduce((acc, item) => {
-            const localDate = new Date(item.datetime).toLocaleDateString('es-PE', {
-                timeZone: 'America/Lima',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            });
-
-            if (!acc[localDate]) acc[localDate] = [];
-            acc[localDate].push(item);
-            return acc;
-        }, {});
-    };
-
     if (!hydrated || !user || !token) return null;
 
     const visibleDevices = devices.filter(device => canViewDevice(user, device, hospitalId));
@@ -139,85 +103,7 @@ function History({ hospital, areas }) {
     const filtersMatch = selectedDeviceInfo?._id === selectedDevice
         && searchResult.from === from && searchResult.to === to;
 
-    const chartData = ({ label, field, color }, dayData, labels) => ({
-        labels,
-        datasets: [{
-            label,
-            data: dayData.map(d => parseFloat(d[field])),
-            fill: false,
-            borderColor: color,
-            backgroundColor: color,
-            tension: 0.4,
-            borderWidth: 2,
-            pointRadius: 3,
-            pointHoverRadius: 5,
-        }],
-    });
-
-    const chartOptions = {
-        maintainAspectRatio: false,
-        responsive: true,
-        plugins: {
-            legend: {
-                display: true,
-                position: 'top',
-                labels: {
-                    font: {
-                        size: 12,
-                        weight: '600'
-                    },
-                    padding: 15,
-                    usePointStyle: true,
-                }
-            },
-            tooltip: {
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                padding: 12,
-                titleFont: {
-                    size: 14,
-                    weight: 'bold'
-                },
-                bodyFont: {
-                    size: 13
-                }
-            }
-        },
-        scales: {
-            x: {
-                grid: {
-                    display: true,
-                    color: 'rgba(0, 0, 0, 0.05)',
-                },
-                ticks: {
-                    maxRotation: 45,
-                    minRotation: 45,
-                    font: {
-                        size: 10
-                    }
-                },
-            },
-            y: {
-                grid: {
-                    display: true,
-                    color: 'rgba(0, 0, 0, 0.05)',
-                },
-                ticks: {
-                    font: {
-                        size: 11
-                    }
-                }
-            }
-        },
-    };
-
-    const dailyCharts = Object.entries(groupByDay(data)).map(([day, records]) => {
-        const labels = records.map(record => historyDateFormatter.format(new Date(record.datetime)));
-        const charts = historyMetrics.map(metric => ({
-            ...metric,
-            data: chartData(metric, records, labels),
-        }));
-        return { day, count: records.length, charts };
-    });
+    const dailyCharts = reportScope === 'device' ? buildDailyCharts(data) : [];
 
     const generatePDF = async (mode) => {
         if (!filtersMatch || !data.length || loading || exportingPdf) return;
@@ -261,7 +147,19 @@ function History({ hospital, areas }) {
 
             <HospitalInfoBanner user={{ ...user, hospital, allowedAreas: areas }} />
 
-            {/* Main Content */}
+            <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
+                <nav aria-label="History reports" className="flex gap-2 border-b border-blue-100">
+                    <button type="button" aria-pressed={reportScope === "device"} disabled={loading || Boolean(exportingPdf)}
+                        onClick={() => setReportScope("device")} className="px-4 py-2 text-sm font-semibold aria-pressed:border-b-2 aria-pressed:border-blue-700 aria-pressed:text-blue-800">By device</button>
+                    <button type="button" aria-pressed={reportScope === "area"} disabled={loading || Boolean(exportingPdf)}
+                        onClick={() => setReportScope("area")} className="px-4 py-2 text-sm font-semibold aria-pressed:border-b-2 aria-pressed:border-blue-700 aria-pressed:text-blue-800">By area</button>
+                </nav>
+            </div>
+
+            {reportScope === "area" && (
+                <AreaHistoryReport hospital={hospital} areas={areas} groups={deviceGroups} token={token} deviceListState={deviceListState} />
+            )}
+            {reportScope === "device" && (
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                 {/* Filters Card */}
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 mb-6">
@@ -565,6 +463,8 @@ function History({ hospital, areas }) {
                     </div>
                 )}
             </div>
+
+            )}
 
             {/* Footer */}
             <div className="bg-white border-t border-gray-200 mt-12">
